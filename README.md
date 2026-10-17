@@ -13,7 +13,35 @@ You talk to the team from a **web app**, over **Telegram**, or in a terminal cha
                       └──► hire_bot ──► Recruiter (designs bot) ──► HR (approve / reject) ──► roster
 ```
 
-## Quick start
+## Deploy (get your own link)
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/neofinn/salesbot)
+
+1. Click the button and connect your GitHub account. Render reads `render.yaml`, builds the Docker
+   image, and gives you a permanent `https://salesbot-xxxx.onrender.com` link with a 1 GB disk for data.
+2. In the Render dashboard, open the service's **Environment** tab and copy `SALESBOT_WEB_TOKEN`
+   (generated for you). That's your sign-in token.
+3. Open your link, sign in, and use **Connections** to connect an AI (see below).
+
+Any host that runs Docker works the same way (Railway, Fly.io, a VPS with `docker compose up -d`);
+set `SALESBOT_WEB_TOKEN` and mount a volume at `/data`.
+
+## Connections
+
+Open **Connections** in the web app header (it opens by itself until an AI is connected):
+
+- **Sign in with OpenRouter**: one click, no key to copy. OpenRouter's OAuth sign-in hands the app an
+  API key for your OpenRouter account, which gives the team Claude, GPT, Grok, Gemini and more.
+- **Or paste API keys** for Anthropic, OpenAI, xAI or Gemini, then press **Test** to check each one.
+- **Claude Code CLI**: if the server has Claude Code installed and signed in, it shows as connected
+  automatically (not in the Docker image).
+- Email (SMTP), text messages (Twilio), web search (Brave) and the approval switch live here too.
+
+Keys saved here are stored in the app's database on your server's disk and override environment
+variables; secrets are never sent back to the browser (only a masked hint). Leave
+**Model for Manager, HR and Recruiter** empty to use whichever AI is connected.
+
+## Quick start (local)
 
 ```bash
 python -m venv .venv && . .venv/bin/activate
@@ -21,7 +49,7 @@ pip install -e '.[dev]'
 cp .env.example .env        # fill in at least one LLM key and the Telegram settings
 set -a; . ./.env; set +a
 
-python -m salesbot web       # web app on http://127.0.0.1:8000
+python -m salesbot web       # web app on http://127.0.0.1:8000 (open Connections to add an AI)
 python -m salesbot telegram  # Telegram bot
 python -m salesbot chat      # terminal chat with the Manager
 ```
@@ -85,6 +113,7 @@ Models are written as `<provider>:<model>` (or just `<provider>` for its default
 | OpenAI | `openai:gpt-5` | `OPENAI_API_KEY` |
 | xAI Grok | `xai:grok-4` | `XAI_API_KEY` |
 | Google Gemini | `gemini:gemini-2.5-pro` | `GEMINI_API_KEY` |
+| OpenRouter | `openrouter` (auto-routes) or `openrouter:<vendor>/<model>` | `OPENROUTER_API_KEY` or **Sign in with OpenRouter** |
 | Claude via Claude Code CLI | `claude_code` or `claude_code:<model>` | none: uses the signed-in `claude` CLI |
 
 **No API key?** If `ANTHROPIC_API_KEY` is unset and the [Claude Code](https://code.claude.com) CLI is

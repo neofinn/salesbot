@@ -57,6 +57,7 @@ def build_application(team: Team) -> Application:
 
     async def post_init(app: Application) -> None:
         await team.store.open()
+        await team.load_settings()
 
     async def post_shutdown(app: Application) -> None:
         await team.store.close()

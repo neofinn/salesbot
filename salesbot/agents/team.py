@@ -6,6 +6,7 @@ import logging
 import re
 from typing import Any
 
+from .. import connections
 from ..config import Settings
 from ..llm import LLMError, LLMGateway, Message
 from ..store import AgentSpec, Store
@@ -49,9 +50,24 @@ Always call exactly one of approve_hire or reject_hire."""
 
 class Team:
     def __init__(self, settings: Settings, store: Store, gateway: LLMGateway) -> None:
-        self.settings = settings
+        self.base_settings = settings  # from the environment
+        self.settings = settings  # environment + values saved in the web app
         self.store = store
         self.gateway = gateway
+
+    # --- connections --------------------------------------------------------
+
+    async def load_settings(self) -> None:
+        """Layer settings saved in the web app over the environment settings."""
+        self.settings = connections.apply(self.base_settings, await self.store.get_settings())
+        self.gateway.reset(self.settings)
+
+    async def save_settings(self, values: dict[str, Any]) -> None:
+        await self.store.set_settings(connections.validate(values))
+        await self.load_settings()
+
+    async def describe_settings(self) -> list[dict[str, Any]]:
+        return connections.describe(self.settings, await self.store.get_settings())
 
     # --- staff ------------------------------------------------------------
 

@@ -1,0 +1,18 @@
+# One-click deploy: https://render.com/deploy?repo=https://github.com/neofinn/salesbot
+services:
+  - type: web
+    name: salesbot
+    runtime: docker
+    plan: starter  # persistent disks need a paid instance
+    healthCheckPath: /healthz
+    envVars:
+      # Your sign-in token for the web app. Render generates it; find it under
+      # the service's Environment tab.
+      - key: SALESBOT_WEB_TOKEN
+        generateValue: true
+      - key: SALESBOT_DATA_DIR
+        value: /data
+    disk:
+      name: salesbot-data
+      mountPath: /data
+      sizeGB: 1

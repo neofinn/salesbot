@@ -60,12 +60,34 @@
   th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
   th { color: var(--muted); font-weight: 500; }
   .hire { display: flex; gap: 8px; margin-bottom: 12px; }
+  dialog { width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--text); }
+  dialog::backdrop { background: #0007; }
+  .dlg-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); z-index: 1; }
+  .dlg-head h2 { margin: 0; font-size: 17px; }
+  .dlg-body { padding: 4px 18px 18px; }
+  .dlg-body h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 18px 0 8px; }
+  .notice { padding: 10px 12px; border-radius: 10px; background: var(--chip); margin: 12px 0 4px; font-size: 14px; }
+  .notice.ok { color: var(--ok); } .notice.bad { color: var(--bad); }
+  .signin { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .signin p { margin: 0; flex: 1; min-width: 220px; font-size: 14px; }
+  .field { display: grid; grid-template-columns: 220px 1fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .field label { font-size: 14px; }
+  .field .src { font-size: 11px; color: var(--muted); min-width: 58px; text-align: right; }
+  .field input[type=checkbox] { flex: none; width: 20px; height: 20px; justify-self: start; }
+  @media (max-width: 600px) { .field { grid-template-columns: 1fr auto; } .field label { grid-column: 1 / -1; } }
+  .prov { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .prov .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); flex: none; }
+  .prov .dot.on { background: var(--ok); }
+  .prov span.name { flex: 1; }
+  .prov .result { font-size: 12px; color: var(--muted); max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dlg-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); position: sticky; bottom: 0; background: var(--panel); }
 </style>
 </head>
 <body>
 <header>
   <h1>salesbot</h1>
   <div class="pills" id="status"></div>
+  <button class="ghost" id="openConn">Connections</button>
   <form method="post" action="/logout"><button class="ghost" title="Sign out">Sign out</button></form>
 </header>
 <main>
@@ -97,6 +119,30 @@
     </div>
   </section>
 </main>
+<dialog id="conn">
+  <div class="dlg-head"><h2>Connections</h2><button class="ghost" id="closeConn">Close</button></div>
+  <div class="dlg-body">
+    <div id="connNotice"></div>
+    <h3>Sign in to an AI</h3>
+    <div class="signin">
+      <p><strong>Sign in with OpenRouter</strong>: one login gives the team Claude, GPT, Grok, Gemini and more. No key to copy.</p>
+      <a href="/connect/openrouter"><button type="button">Sign in with OpenRouter</button></a>
+    </div>
+    <h3>AI providers</h3>
+    <div id="provList"></div>
+    <h3>Or paste API keys</h3>
+    <div id="fields-ai"></div>
+    <h3>Email (SMTP)</h3>
+    <div id="fields-email"></div>
+    <h3>Text messages (Twilio)</h3>
+    <div id="fields-sms"></div>
+    <h3>Web search (Brave)</h3>
+    <div id="fields-search"></div>
+    <h3>Safety</h3>
+    <div id="fields-behaviour"></div>
+  </div>
+  <div class="dlg-foot"><button class="ghost" id="cancelConn">Cancel</button><button id="saveConn">Save</button></div>
+</dialog>
 <script>
 const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, ...kids) => {
@@ -166,8 +212,9 @@ async function loadStatus() {
   const s = await api("/api/status");
   const pill = (label, on) => el("span", { className: `pill ${on ? "on" : "off"}`, textContent: label });
   $("status").replaceChildren(
-    el("span", { className: "pill", textContent: s.default_model }),
-    ...["anthropic", "openai", "xai", "gemini"].map((p) => pill(p, s.providers.includes(p))),
+    el("span", { className: "pill", textContent: `staff: ${s.default_model}` }),
+    ...(s.providers.length ? s.providers.map((p) => pill(p, true))
+      : [el("span", { className: "pill", style: "color: var(--bad)", textContent: "no AI connected" })]),
     pill("email", s.email), pill("sms", s.sms), pill("web search", s.web_search),
     el("span", { className: "pill", textContent: s.require_approval ? "approval required" : "auto-send" }),
   );
@@ -246,6 +293,88 @@ $("hireForm").addEventListener("submit", async (e) => {
 });
 let searchTimer;
 $("leadSearch").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadLeads, 250); });
+
+// --- Connections ---------------------------------------------------------
+const edits = {};
+
+function notice(text, kind = "") {
+  $("connNotice").replaceChildren(text ? el("div", { className: `notice ${kind}`, textContent: text }) : "");
+}
+
+function fieldRow(f) {
+  const src = el("span", { className: "src", textContent: f.source === "saved" ? "saved" : f.source === "env" ? "from env" : "" });
+  let input;
+  if (f.kind === "bool") {
+    input = el("input", { type: "checkbox", checked: !!f.value, onchange: () => (edits[f.key] = input.checked) });
+  } else if (f.kind === "secret") {
+    input = el("input", {
+      type: "password", autocomplete: "off",
+      placeholder: f.set ? `${f.hint} (leave blank to keep)` : f.placeholder,
+      oninput: () => (edits[f.key] = input.value),
+    });
+  } else {
+    input = el("input", {
+      type: f.kind === "int" ? "number" : "text", value: f.value ?? "",
+      placeholder: f.key === "default_model" ? "auto: use whichever AI is connected" : f.placeholder,
+      oninput: () => (edits[f.key] = input.value),
+    });
+  }
+  const side = f.kind === "secret" && f.source === "saved"
+    ? el("button", { type: "button", className: "danger", textContent: "Remove", title: "Delete the saved key",
+        onclick: () => saveConnections({ [f.key]: null }) })
+    : src;
+  return el("div", { className: "field" }, el("label", { textContent: f.label }), input, side);
+}
+
+function renderConnections(data) {
+  for (const g of ["ai", "email", "sms", "search", "behaviour"]) {
+    $(`fields-${g}`).replaceChildren(...data.fields.filter((f) => f.group === g).map(fieldRow));
+  }
+  $("provList").replaceChildren(...data.providers.map((p) => {
+    const result = el("span", { className: "result" });
+    return el("div", { className: "prov" },
+      el("span", { className: `dot ${p.connected ? "on" : ""}` }),
+      el("span", { className: "name", textContent: p.label + (data.default_model.split(":")[0] === p.name ? " · used by staff" : "") }),
+      result,
+      el("button", { type: "button", className: "ghost", textContent: "Test", disabled: !p.connected, onclick: async (e) => {
+        e.target.disabled = true; result.textContent = "testing…";
+        const r = await api("/api/connections/test", { method: "POST", body: { provider: p.name } }).catch((err) => ({ ok: false, error: err.message }));
+        result.textContent = r.ok ? `✓ replied "${r.reply}"` : `✗ ${r.error}`;
+        result.title = result.textContent;
+        e.target.disabled = false;
+      } }));
+  }));
+}
+
+async function openConnections() {
+  Object.keys(edits).forEach((k) => delete edits[k]);
+  renderConnections(await api("/api/connections"));
+  if (!$("conn").open) $("conn").showModal();
+}
+
+async function saveConnections(values) {
+  try {
+    renderConnections(await api("/api/connections", { method: "PUT", body: values }));
+    Object.keys(edits).forEach((k) => delete edits[k]);
+    notice("Saved.", "ok");
+    loadStatus().catch(console.error);
+  } catch (e) { notice(e.message, "bad"); }
+}
+
+$("openConn").addEventListener("click", () => { notice(""); openConnections(); });
+$("closeConn").addEventListener("click", () => $("conn").close());
+$("cancelConn").addEventListener("click", () => $("conn").close());
+$("saveConn").addEventListener("click", () => saveConnections({ ...edits }));
+
+(async () => {
+  const params = new URLSearchParams(location.search);
+  const connect = params.get("connect");
+  if (connect) history.replaceState(null, "", "/");
+  const s = await api("/api/status").catch(() => null);
+  if (connect === "openrouter-ok") { notice("Signed in with OpenRouter. The team can now use it.", "ok"); openConnections(); }
+  else if (connect === "openrouter-failed") { notice("OpenRouter sign-in didn't complete. Please try again.", "bad"); openConnections(); }
+  else if (s && !s.providers.length) { notice("Connect an AI to get started: sign in with OpenRouter or paste an API key."); openConnections(); }
+})();
 
 api("/api/history").then((h) => (h.length ? h.forEach((m) => addMsg(m.role, m.text)) : showEmpty())).catch(showEmpty);
 refresh();

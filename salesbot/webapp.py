@@ -2,21 +2,31 @@
 
 from __future__ import annotations
 
+import asyncio
+import base64
+import hashlib
 import hmac
 import logging
+import secrets
 from contextlib import asynccontextmanager
 from importlib import resources
 from typing import Any
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request
+import httpx
+from fastapi import Body, Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 
 from .agents import Team
 from .commands import run_command
+from .connections import PROVIDER_LABELS
+from .llm import Message
 
 log = logging.getLogger(__name__)
 COOKIE = "salesbot_token"
+PKCE_COOKIE = "salesbot_or_verifier"
+OPENROUTER_AUTH = "https://openrouter.ai/auth"
+OPENROUTER_KEYS = "https://openrouter.ai/api/v1/auth/keys"
 CHAT_ID = "web"
 
 LOGIN_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -38,12 +48,17 @@ class HireIn(BaseModel):
     job_description: str
 
 
+class TestIn(BaseModel):
+    provider: str
+
+
 def create_app(team: Team) -> FastAPI:
     token = team.settings.web_token
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         await team.store.open()
+        await team.load_settings()
         yield
         await team.store.close()
 
@@ -59,6 +74,10 @@ def create_app(team: Team) -> FastAPI:
         if not authorized(request):
             raise HTTPException(status_code=401, detail="Not signed in")
 
+    @app.get("/healthz")
+    async def healthz() -> dict[str, str]:
+        return {"status": "ok"}
+
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request) -> Any:
         if not authorized(request):
@@ -70,7 +89,7 @@ def create_app(team: Team) -> FastAPI:
         if not token or not hmac.compare_digest(token_in.encode(), token.encode()):
             return HTMLResponse(LOGIN_PAGE.replace("{error}", "<p>Wrong token.</p>"), status_code=401)
         resp = RedirectResponse("/", status_code=303)
-        resp.set_cookie(COOKIE, token, httponly=True, samesite="strict", max_age=60 * 60 * 24 * 30)
+        resp.set_cookie(COOKIE, token, httponly=True, samesite="lax", max_age=60 * 60 * 24 * 30)
         return resp
 
     @app.post("/logout")
@@ -141,6 +160,80 @@ def create_app(team: Team) -> FastAPI:
             "web_search": bool(s.brave_api_key),
         }
 
+    # --- connections ----------------------------------------------------------
+
+    @app.get("/api/connections", dependencies=api)
+    async def get_connections() -> dict[str, Any]:
+        configured = set(team.gateway.configured())
+        return {
+            "fields": await team.describe_settings(),
+            "providers": [
+                {"name": name, "label": label, "connected": name in configured}
+                for name, label in PROVIDER_LABELS.items()
+            ],
+            "default_model": team.settings.default_model,
+            "default_model_auto": team.base_settings.default_model_auto,
+        }
+
+    @app.put("/api/connections", dependencies=api)
+    async def put_connections(values: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        try:
+            await team.save_settings(values)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return await get_connections()
+
+    @app.post("/api/connections/test", dependencies=api)
+    async def test_connection(body: TestIn) -> dict[str, Any]:
+        if body.provider not in PROVIDER_LABELS:
+            raise HTTPException(status_code=400, detail="Unknown provider")
+        try:
+            resp = await asyncio.wait_for(
+                team.gateway.complete(
+                    body.provider,
+                    "You are a connection test. Reply with exactly: OK",
+                    [Message(role="user", text="ping")],
+                    [],
+                ),
+                timeout=120,
+            )
+        except Exception as exc:  # report any provider failure to the UI
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:500]}
+        return {"ok": True, "reply": resp.text[:200]}
+
+    @app.get("/connect/openrouter", dependencies=api)
+    async def connect_openrouter(request: Request) -> Any:
+        """Start OpenRouter's OAuth (PKCE) sign-in; it returns an API key for this app."""
+        verifier = secrets.token_urlsafe(64)
+        challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+        callback = str(request.url_for("openrouter_callback"))
+        url = httpx.URL(
+            OPENROUTER_AUTH,
+            params={"callback_url": callback, "code_challenge": challenge, "code_challenge_method": "S256"},
+        )
+        resp = RedirectResponse(str(url), status_code=303)
+        resp.set_cookie(PKCE_COOKIE, verifier, httponly=True, samesite="lax", max_age=600)
+        return resp
+
+    @app.get("/connect/openrouter/callback", name="openrouter_callback", dependencies=api)
+    async def openrouter_callback(request: Request, code: str = "") -> Any:
+        verifier = request.cookies.get(PKCE_COOKIE, "")
+        if not code or not verifier:
+            return RedirectResponse("/?connect=openrouter-failed", status_code=303)
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(
+                OPENROUTER_KEYS,
+                json={"code": code, "code_verifier": verifier, "code_challenge_method": "S256"},
+            )
+        key = r.json().get("key") if r.status_code < 400 else None
+        if not key:
+            log.warning("OpenRouter key exchange failed: %s %s", r.status_code, r.text[:200])
+            return RedirectResponse("/?connect=openrouter-failed", status_code=303)
+        await team.save_settings({"openrouter_api_key": key})
+        resp = RedirectResponse("/?connect=openrouter-ok", status_code=303)
+        resp.delete_cookie(PKCE_COOKIE)
+        return resp
+
     return app
 
 
@@ -150,4 +243,5 @@ def serve(team: Team) -> None:
     s = team.settings
     if s.web_host not in ("127.0.0.1", "localhost", "::1") and not s.web_token:
         raise SystemExit("Set SALESBOT_WEB_TOKEN before exposing the web app beyond localhost.")
-    uvicorn.run(create_app(team), host=s.web_host, port=s.web_port)
+    # Trust X-Forwarded-* from the hosting platform's proxy so OAuth callback URLs use https.
+    uvicorn.run(create_app(team), host=s.web_host, port=s.web_port, proxy_headers=True, forwarded_allow_ips="*")
