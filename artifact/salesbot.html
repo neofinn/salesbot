@@ -112,6 +112,7 @@ main {
 .fire { border: 0; background: none; color: var(--muted); font-size: 12px; padding: 0 2px; }
 .fire:hover, .fire.armed { color: var(--bad); }
 .hire-form { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
+.conn-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
 .hire-form textarea { min-height: 64px; }
 
 /* Chat */
@@ -216,6 +217,8 @@ textarea, input, select {
       <div class="badges" id="staff"></div>
       <div class="eyebrow section-label">Hired bots</div>
       <div class="badges" id="bots"></div>
+      <div class="eyebrow section-label">Connections</div>
+      <div id="connections"></div>
       <form class="hire-form" id="hireForm">
         <label class="eyebrow" for="hireInput">Hire directly</label>
         <textarea id="hireInput" placeholder="Job description, e.g. Finds independent dental clinics and logs them as leads"></textarea>
@@ -271,14 +274,18 @@ const TOOLS = {
   crm_write: "add leads and update their status and notes",
   draft_email: "draft emails (they wait for the owner's approval)",
   draft_sms: "draft text messages (they wait for the owner's approval)",
+  find_leads: "look up real companies and contacts (with emails and phones) in the owner's Clay account",
 };
+// Clay tools a find_leads bot may call; their input formats are read from Clay at run time.
+const CLAY = "Clay";
+const CLAY_TOOLS = ["find-and-enrich-company", "find-and-enrich-contacts-at-company", "find-and-enrich-list-of-contacts", "get-existing-search", "get-credits-available"];
 const STATUSES = ["new", "contacted", "qualified", "proposal", "won", "lost"];
 const NAME_RE = /^[a-z][a-z0-9_]{1,31}$/;
 const MAX_ROUNDS = 4;
 
 const S = {
   bots: [], leads: [], outbox: [], chat: [],
-  sample: null, store: null, readOnly: false, busy: false, ctl: null, tier: "default", lastError: "",
+  sample: null, store: null, readOnly: false, busy: false, ctl: null, tier: "default", lastError: "", mcp: null, clay: "checking",
   live: null, // the in-progress manager turn: {steps: [{text, state}]}
 };
 
@@ -434,7 +441,7 @@ function renderLeads() {
   }) : [el("p", { className: "muted", style: "font-size:13px", textContent: S.leads.length ? "No leads match." : "No leads yet. Bots with CRM access add them here." })]));
 }
 
-function renderAll() { renderTeam(); renderChat(); renderOutbox(); renderLeads(); syncCompose(); }
+function renderAll() { renderTeam(); renderConnections(); renderChat(); renderOutbox(); renderLeads(); syncCompose(); }
 
 function syncCompose() {
   $("sendBtn").hidden = S.busy; $("stopBtn").hidden = !S.busy;
@@ -468,11 +475,11 @@ const parseJson = (text) => {
 
 // One structured call. If the standard model errors upstream, try once more on the fast model
 // with a plain call (parsed here), so one unavailable model doesn't stop the whole team.
-async function askJson(prompt, signal) {
+async function askJson(prompt, signal, tools) {
   try {
-    return await S.sample.json(prompt, { signal, cache: false, modelTier: S.tier });
+    return await S.sample.json(prompt, tools ? { signal, cache: false, modelTier: S.tier, tools } : { signal, cache: false, modelTier: S.tier });
   } catch (e) {
-    if (e?.code !== "upstream_error" || S.tier === "quick") throw e;
+    if (e?.code !== "upstream_error" || S.tier === "quick" || tools) throw e;
     S.lastError = errDetail(e);
     const { text } = await S.sample(prompt + "\n\nReply with the JSON only.", { signal, cache: false, modelTier: "quick" });
     try { return parseJson(text); } catch { throw { code: "invalid_json", message: "fast-model reply was not JSON", text }; }
@@ -497,7 +504,9 @@ function managerPrompt(history, message, results, round) {
     "Your job: understand what the owner wants, delegate the work to bots on the team, hire a bot when nobody fits, retire bots that are no longer needed, and report back clearly.",
     "",
     "How the company works:",
-    "- Worker bots cannot browse the web or send anything. They work from their own knowledge, the owner's instructions and the lead book (CRM).",
+    S.clay === "available"
+      ? "- Bots granted find_leads can look up real companies and contacts in the owner's Clay account (it uses Clay credits). Other bots cannot browse the web. No bot can send anything."
+      : "- Worker bots cannot browse the web or send anything. They work from their own knowledge, the owner's instructions and the lead book (CRM). Finding new leads needs the Clay connector, which is not connected: tell the owner to connect Clay in claude.ai Settings > Connectors, then hire a bot with find_leads.",
     "- Emails and texts that bots draft go to the owner's out-tray and are only sent if the owner approves them.",
     `- Bot tools: ${Object.entries(TOOLS).map(([k, v]) => `${k} (${v})`).join("; ")}.`,
     "- Hiring: the Recruiter designs the bot from your job description and HR approves or rejects it. Name the bot you want in snake_case.",
@@ -576,7 +585,7 @@ async function hire(job, wanted, signal) {
     wanted ? `The Manager would like it named: ${wanted}` : "",
     `Names already taken: ${[...STAFF.map((p) => p.name), ...S.bots.map((b) => b.name)].join(", ")}`,
     `Tools you can grant (grant only what the job needs): ${Object.entries(TOOLS).map(([k, v]) => `${k}: ${v}`).join("; ")}.`,
-    "Worker bots cannot browse the web or send messages; drafted emails and texts wait for the owner's approval.",
+    "A bot whose job is finding leads needs find_leads together with crm_write so it can save what it finds. Only find_leads gives a bot access to real company and contact data (through Clay); without it bots cannot browse the web. No bot can send messages; drafted emails and texts wait for the owner's approval.",
     "Write the instructions in the second person: responsibilities, how to work, quality bar, tone for any messages, and limits (never invent contact details, respect consent and anti-spam rules, say what is missing instead of guessing).",
     feedback ? `Your previous design was rejected by validation: ${feedback}. Fix it.` : "",
     'Reply with ONLY a JSON object: {"name": "snake_case", "role": "one line", "instructions": "full instructions", "tools": ["crm_read", ...]}',
@@ -615,6 +624,64 @@ async function hire(job, wanted, signal) {
   return `hire ${spec.name}: hired as "${spec.role}" with tools ${spec.tools.join(", ") || "none"}. HR: ${verdict.reason || ""}`;
 }
 
+// Clay through the owner's claude.ai connector. Returns sample() tools, or null when Clay can't be used.
+async function clayToolsFor(botName) {
+  if (!S.mcp || S.clay === "absent") return null;
+  const limits = await S.sample.limits().catch(() => null);
+  if (!limits?.tools) return null;
+  const perms = await window.claude.use("permissions").catch(() => null);
+  if (perms) await perms.request(["mcp:" + CLAY]).catch(() => null);
+  const out = [];
+  for (const name of CLAY_TOOLS) {
+    let d = null;
+    try { d = await S.mcp.describeTool(CLAY, name); } catch { d = null; }
+    if (!d) continue;
+    const schemaText = JSON.stringify(d.inputSchema || {});
+    out.push({
+      name: name.replace(/[^A-Za-z0-9_-]/g, "_"),
+      description: String(d.description || name).slice(0, 1000),
+      ...(d.inputSchema && schemaText.length <= 4000 ? { inputSchema: d.inputSchema } : {}),
+      async execute(input, ctx) {
+        const st = step(`${botName} is searching Clay (${name})…`);
+        try {
+          const r = await S.mcp.callTool(CLAY, name, input, { signal: ctx.signal });
+          st.done(`${botName} searched Clay (${name})`);
+          const text = typeof r.payload === "string" ? r.payload : JSON.stringify(r.payload ?? r.content);
+          return text.length > 30000 ? text.slice(0, 30000) + " …(truncated)" : text;
+        } catch (e) {
+          st.fail(`Clay ${name} failed (${e?.code || "error"})`);
+          throw new Error(clayError(e));
+        }
+      },
+    });
+  }
+  if (!out.length) { S.clay = "absent"; renderConnections(); return null; }
+  S.clay = "available"; renderConnections();
+  return out;
+}
+function clayError(e) {
+  switch (e?.code) {
+    case "server_not_connected": return "Clay is not connected. The owner can add it in claude.ai Settings > Connectors.";
+    case "needs_reauth": return "Clay needs to be reconnected in claude.ai Settings > Connectors.";
+    case "not_in_manifest": case "approval_required": return "The owner did not allow this page to use Clay.";
+    case "tool_error": return `Clay reported an error: ${String(e.message || "").slice(0, 300)}`;
+    default: return `Clay call failed (${e?.code || "error"}): ${String(e?.message || "").slice(0, 200)}`;
+  }
+}
+
+function renderConnections() {
+  const box = $("connections");
+  if (!box) return;
+  const state = { checking: ["Checking…", ""], available: ["Connected", "ok"], absent: ["Not connected", "off"] }[S.clay] || ["Unavailable", "off"];
+  box.replaceChildren(
+    el("div", { className: "conn-row" },
+      el("span", { textContent: "Clay lead search" }),
+      el("span", { className: `pill ${state[1] === "ok" ? "approved" : ""}`, textContent: state[0] })),
+    S.clay === "available" ? null : el("p", { className: "muted", style: "font-size:12px;margin:4px 0 0",
+      textContent: "To let bots find real leads, connect Clay in claude.ai Settings > Connectors, then reload this page. Bots with the find_leads permission use your Clay credits." }),
+  );
+}
+
 // A worker bot: one structured call, then the page applies what it is allowed to do.
 async function delegate(name, task, signal) {
   const bot = S.bots.find((b) => b.name === name);
@@ -622,6 +689,7 @@ async function delegate(name, task, signal) {
   const tools = new Set(bot.tools || []);
   const st = step(`${bot.name} is working…`);
   const canRead = tools.has("crm_read") || tools.has("crm_write");
+  const clayTools = tools.has("find_leads") ? await clayToolsFor(bot.name) : null;
   const shape = {
     report: "what you did and anything the Manager should know (plain text)",
     ...(tools.has("crm_write") ? {
@@ -637,13 +705,14 @@ async function delegate(name, task, signal) {
     out = await askJson([
       `You are ${bot.name}, a bot employee at Salesbot. Your role: ${bot.role}.`,
       `Your instructions:\n${bot.instructions}`,
-      `You can: ${[...tools].map((t) => TOOLS[t]).join("; ") || "only report back"}. You cannot browse the web or send anything.`,
+      `You can: ${[...tools].map((t) => TOOLS[t]).join("; ") || "only report back"}. You cannot send anything.`,
+      clayTools ? "Use the Clay tools to find real companies and contacts for this task. Only record companies, people, emails and phone numbers that Clay returned. Keep each search focused to save the owner's Clay credits; check get-credits-available first if the task is large." : (tools.has("find_leads") ? "Your Clay lead search is not available right now (the Clay connector is not connected or was not allowed). Say so in your report and do not invent leads." : "You cannot browse the web."),
       canRead ? `Lead book (JSON): ${JSON.stringify(leadDigest())}` : "",
       `Task from the Manager:\n${task}`,
       "Do the task now. Never invent contact details: only use addresses and numbers given to you or already in the lead book. Leave lists empty when there is nothing to add.",
       `Reply with ONLY a JSON object in this shape: ${JSON.stringify(shape)}`,
-    ].filter(Boolean).join("\n\n"), signal);
-  } catch (e) { st.fail(`${bot.name} couldn't finish`); if (e?.code === "cancelled") throw e; return `delegate to ${bot.name}: failed (${errText(e)}).`; }
+    ].filter(Boolean).join("\n\n"), signal, clayTools);
+  } catch (e) { st.fail(`${bot.name} couldn't finish (${errDetail(e) || "no details"})`); if (e?.code === "cancelled") throw e; return `delegate to ${bot.name}: failed (${errText(e)}).`; }
 
   const did = [];
   if (tools.has("crm_write")) {
@@ -760,10 +829,13 @@ S.store = memoryStore();
 renderAll();
 (async () => {
   const claude = window.claude;
-  const [sample, db, user] = await Promise.all([
-    claude?.use("sample") ?? null, claude?.use("db") ?? null, claude?.use("user") ?? null,
+  const [sample, db, user, mcp] = await Promise.all([
+    claude?.use("sample") ?? null, claude?.use("db") ?? null, claude?.use("user") ?? null, claude?.use("mcp") ?? null,
   ]);
-  S.sample = sample;
+  S.sample = sample; S.mcp = mcp;
+  if (!mcp) S.clay = "absent";
+  else mcp.listTools(CLAY).then((r) => { S.clay = r?.servers?.length && r.servers[0].tools?.length ? "available" : "absent"; renderConnections(); })
+    .catch(() => { S.clay = "absent"; renderConnections(); });
   if (db) {
     S.store = dbStore(db);
     const canWrite = user ? await user.can("data.write").catch(() => null) : null;
