@@ -1,0 +1,27 @@
+services:
+  web:
+    build: .
+    command: ["python", "-m", "salesbot", "web"]
+    env_file: .env
+    environment:
+      SALESBOT_DATA_DIR: /data
+      SALESBOT_WEB_HOST: 0.0.0.0
+    ports:
+      - "8000:8000"
+    volumes:
+      - salesbot-data:/data
+    restart: unless-stopped
+
+  telegram:
+    build: .
+    command: ["python", "-m", "salesbot", "telegram"]
+    env_file: .env
+    environment:
+      SALESBOT_DATA_DIR: /data
+    volumes:
+      - salesbot-data:/data
+    restart: unless-stopped
+    profiles: ["telegram"]
+
+volumes:
+  salesbot-data:
