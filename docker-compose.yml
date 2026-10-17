@@ -1,0 +1,12 @@
+services:
+  salesbot:
+    build: .
+    env_file: .env
+    environment:
+      SALESBOT_DATA_DIR: /data
+    volumes:
+      - salesbot-data:/data
+    restart: unless-stopped
+
+volumes:
+  salesbot-data:
