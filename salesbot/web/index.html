@@ -122,10 +122,15 @@ const EXAMPLES = [
   "Draft a friendly intro email for every new lead",
 ];
 
+// Show **bold** from model replies as bold text; everything else stays plain text.
+function renderBold(text) {
+  return text.split(/\*\*(.+?)\*\*/g).map((part, i) => (i % 2 ? el("strong", { textContent: part }) : part));
+}
+
 function addMsg(role, text) {
   const log = $("log");
   log.querySelector(".empty")?.remove();
-  const m = el("div", { className: `msg ${role}`, textContent: text });
+  const m = el("div", { className: `msg ${role}` }, ...renderBold(text));
   log.append(m);
   log.scrollTop = log.scrollHeight;
   return m;

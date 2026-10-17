@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass, field
 
 
@@ -21,6 +22,13 @@ def _env_list(name: str) -> list[str]:
     return [item.strip() for item in _env(name).split(",") if item.strip()]
 
 
+def _auto_default_model() -> str:
+    """Claude via API key if there is one; else a signed-in Claude Code CLI; else Claude via API."""
+    if _env("ANTHROPIC_API_KEY") or not shutil.which(_env("CLAUDE_CLI", "claude")):
+        return Settings.default_model
+    return "claude_code"
+
+
 @dataclass
 class Settings:
     # Model used by the built-in staff (manager, HR, recruiter) and as the
@@ -31,6 +39,8 @@ class Settings:
     openai_model: str = "gpt-5"
     xai_model: str = "grok-4"
     gemini_model: str = "gemini-2.5-pro"
+    # "default" lets the Claude Code CLI pick its own model.
+    claude_code_model: str = "default"
 
     anthropic_api_key: str = ""
     openai_api_key: str = ""
@@ -66,11 +76,12 @@ class Settings:
     @classmethod
     def from_env(cls) -> Settings:
         return cls(
-            default_model=_env("SALESBOT_DEFAULT_MODEL", cls.default_model),
+            default_model=_env("SALESBOT_DEFAULT_MODEL") or _auto_default_model(),
             anthropic_model=_env("ANTHROPIC_MODEL", cls.anthropic_model),
             openai_model=_env("OPENAI_MODEL", cls.openai_model),
             xai_model=_env("XAI_MODEL", cls.xai_model),
             gemini_model=_env("GEMINI_MODEL", cls.gemini_model),
+            claude_code_model=_env("CLAUDE_CODE_MODEL", cls.claude_code_model),
             anthropic_api_key=_env("ANTHROPIC_API_KEY"),
             openai_api_key=_env("OPENAI_API_KEY"),
             xai_api_key=_env("XAI_API_KEY"),

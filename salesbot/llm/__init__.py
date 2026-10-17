@@ -5,7 +5,7 @@ from __future__ import annotations
 from ..config import Settings
 from .base import LLMError, LLMResponse, Message, Provider, ToolCall, ToolResult, ToolSpec
 
-PROVIDERS = ("anthropic", "openai", "xai", "gemini")
+PROVIDERS = ("anthropic", "openai", "xai", "gemini", "claude_code")
 
 __all__ = [
     "PROVIDERS",
@@ -53,15 +53,22 @@ class LLMGateway:
         # even when credentials come from elsewhere (e.g. an `ant auth` profile).
         found.add(self.settings.default_model.partition(":")[0].strip().lower())
         for name in PROVIDERS:
-            if getattr(self.settings, f"{name}_api_key", ""):
+            if self._has_credentials(name):
                 found.add(name)
         return sorted(found)
 
     def configured(self) -> list[str]:
         """Providers with an API key in the settings, plus custom registered ones."""
         found = {name for name in self._providers if name not in PROVIDERS}
-        found.update(name for name in PROVIDERS if getattr(self.settings, f"{name}_api_key", ""))
+        found.update(name for name in PROVIDERS if self._has_credentials(name))
         return sorted(found)
+
+    def _has_credentials(self, name: str) -> bool:
+        if name == "claude_code":
+            from .claude_code_provider import cli_available
+
+            return cli_available()
+        return bool(getattr(self.settings, f"{name}_api_key", ""))
 
     def _build(self, name: str) -> Provider:
         s = self.settings
@@ -69,6 +76,12 @@ class LLMGateway:
             from .anthropic_provider import AnthropicProvider
 
             return AnthropicProvider(api_key=s.anthropic_api_key)
+        if name == "claude_code":
+            from .claude_code_provider import ClaudeCodeProvider, cli_available
+
+            if not cli_available():
+                raise LLMError("The claude CLI is not installed (needed for the claude_code provider).")
+            return ClaudeCodeProvider()
         key = getattr(s, f"{name}_api_key", "")
         if not key:
             raise LLMError(f"No API key configured for {name}. Set {name.upper()}_API_KEY.")

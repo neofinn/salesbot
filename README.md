@@ -85,6 +85,13 @@ Models are written as `<provider>:<model>` (or just `<provider>` for its default
 | OpenAI | `openai:gpt-5` | `OPENAI_API_KEY` |
 | xAI Grok | `xai:grok-4` | `XAI_API_KEY` |
 | Google Gemini | `gemini:gemini-2.5-pro` | `GEMINI_API_KEY` |
+| Claude via Claude Code CLI | `claude_code` or `claude_code:<model>` | none: uses the signed-in `claude` CLI |
+
+**No API key?** If `ANTHROPIC_API_KEY` is unset and the [Claude Code](https://code.claude.com) CLI is
+installed and signed in, salesbot defaults to `claude_code`. Each turn runs `claude -p` with Claude
+Code's own tools disabled; salesbot's tools are described in the prompt and called through a JSON
+schema. It's slower than the API (a few seconds per turn), so for an always-on deployment prefer an
+API key. The Docker image doesn't include the CLI.
 
 The Manager, HR and Recruiter use `SALESBOT_DEFAULT_MODEL`. The Recruiter picks a model for each new
 bot from the providers you have keys for. Claude requests use adaptive thinking and server-side
@@ -96,7 +103,7 @@ refusal fallbacks.
 salesbot/
   agents/agent.py      one bot: system prompt + model + tools, runs the tool-calling loop
   agents/team.py       Manager, HR, Recruiter; hiring, delegation, approvals
-  llm/                 provider-neutral gateway + Claude / OpenAI / xAI / Gemini adapters
+  llm/                 provider-neutral gateway + Claude API / Claude Code CLI / OpenAI / xAI / Gemini
   tools/               web search & fetch, email, SMS, CRM
   store.py             SQLite persistence
   webapp.py, web/      web app (FastAPI + a single-page UI)

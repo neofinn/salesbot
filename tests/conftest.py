@@ -33,6 +33,12 @@ class FakeProvider:
         raise AssertionError(f"No scripted reply for system prompt: {system[:60]!r}")
 
 
+@pytest.fixture(autouse=True)
+def no_claude_cli(monkeypatch):
+    """Keep tests independent of whether the Claude Code CLI is installed."""
+    monkeypatch.setenv("CLAUDE_CLI", "salesbot-test-missing-claude")
+
+
 @pytest.fixture
 def settings(tmp_path):
     return Settings(default_model="fake:test", data_dir=str(tmp_path), require_approval=True)
