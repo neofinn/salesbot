@@ -276,9 +276,9 @@ const TOOLS = {
   draft_sms: "draft text messages (they wait for the owner's approval)",
   find_leads: "look up real companies and contacts (with emails and phones) in the owner's Clay account",
 };
-// Clay tools a find_leads bot may call; their input formats are read from Clay at run time.
+// Clay tools a find_leads bot may call (names and inputs checked against the live Clay connector).
 const CLAY = "Clay";
-const CLAY_TOOLS = ["find-and-enrich-company", "find-and-enrich-contacts-at-company", "find-and-enrich-list-of-contacts", "get-existing-search", "get-credits-available"];
+const CLAY_TOOLS = ["search-companies", "search-contacts", "load-more-search-results", "add-contact-data-points", "get-task-context"];
 const STATUSES = ["new", "contacted", "qualified", "proposal", "won", "lost"];
 const NAME_RE = /^[a-z][a-z0-9_]{1,31}$/;
 const MAX_ROUNDS = 4;
@@ -436,9 +436,27 @@ function renderLeads() {
       el("div", {}, el("div", { className: "n", textContent: l.name }), el("div", { className: "c", textContent: l.company || "" })),
       el("div", { style: "text-align:right" }, sel, el("div", { className: "id", textContent: l.id })),
       (l.email || l.phone) ? el("div", { className: "contact", textContent: [l.email, l.phone].filter(Boolean).join(" · ") }) : null,
+      !l.email && l.clayTask && l.clayEntity && S.mcp && !S.readOnly ? fetchEmailButton(l) : null,
       l.notes ? el("div", { className: "notes", textContent: l.notes }) : null,
     );
   }) : [el("p", { className: "muted", style: "font-size:13px", textContent: S.leads.length ? "No leads match." : "No leads yet. Bots with CRM access add them here." })]));
+}
+
+// A lead found through Clay keeps its Clay search; this reads back the email once Clay has it.
+function fetchEmailButton(l) {
+  const b = el("button", { className: "btn ghost small", type: "button", textContent: "Fetch email", style: "grid-column:1/-1;justify-self:start" });
+  b.onclick = async () => {
+    b.disabled = true; b.textContent = "Checking Clay…";
+    try {
+      const r = await callClay("get-task-context", { taskId: l.clayTask, entityIds: [l.clayEntity] });
+      const email = r.contacts?.[0]?.email || "";
+      if (email && !email.startsWith("(")) {
+        await S.store.update("leads", l.id, { email, updatedAt: Date.now() });
+        b.textContent = "Email saved";
+      } else { b.textContent = email === "(not found)" ? "Clay found no email" : "Still looking, try later"; b.disabled = email === "(not found)"; if (!b.disabled) setTimeout(() => (b.textContent = "Fetch email"), 3000); }
+    } catch (e) { b.textContent = clayError(e).slice(0, 80); b.disabled = false; }
+  };
+  return b;
 }
 
 function renderAll() { renderTeam(); renderConnections(); renderChat(); renderOutbox(); renderLeads(); syncCompose(); }
@@ -625,39 +643,82 @@ async function hire(job, wanted, signal) {
 }
 
 // Clay through the owner's claude.ai connector. Returns sample() tools, or null when Clay can't be used.
+// Clay's raw results are large (full descriptions, every office address), so each result is cut
+// down to what a bot needs before it is handed back.
+const short = (v, n = 200) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, n);
+function slimClay(r) {
+  const out = { taskId: r?.taskId, hasMore: !!r?.hasMore };
+  const companies = Object.values(r?.companies || {});
+  if (companies.length) out.companies = companies.map((c) => ({
+    entityId: c.entityId, name: c.name, domain: c.domain, website: c.website, industry: c.industry,
+    size: c.size, location: c.locality, revenue: c.annual_revenue, about: short(c.description, 220),
+  }));
+  const contacts = r?.contacts || [];
+  if (contacts.length) out.contacts = contacts.map((p) => {
+    const email = (p.enrichments || []).find((e) => /email/i.test(String(e.name || "")));
+    return {
+      entityId: p.entityId, name: p.name, title: p.latest_experience_title, company: p.latest_experience_company,
+      domain: p.domain, linkedin: p.url, location: p.location_name,
+      email: email ? (emailValue(email.value) || `(${email.state === "completed" ? "not found" : email.state})`) : undefined,
+    };
+  });
+  return out;
+}
+// A finished lookup arrives as {"Work Email": "a@b.com"} (sometimes JSON-encoded) or a plain address.
+function emailValue(v) {
+  if (v == null || v === "") return "";
+  let x = v;
+  if (typeof x === "string" && x.trim().startsWith("{")) { try { x = JSON.parse(x); } catch { /* keep the string */ } }
+  if (typeof x === "object") x = Object.values(x).find((y) => typeof y === "string" && y.includes("@")) || "";
+  x = String(x).trim();
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x) ? x : "";
+}
+async function callClay(tool, input, signal) {
+  const r = await S.mcp.callTool(CLAY, tool, input, signal ? { signal } : undefined);
+  return slimClay(r.payload);
+}
+const DSL_HELP = [
+  'Clay Search DSL. Companies: "select from companies where ... limit N". Useful company fields:',
+  'products_and_services is_similar_to ("freight forwarding", "importer") (semantic match on what they do);',
+  'description contains ("New Jersey") (whole-word keyword match; companies have no location field, so filter places this way);',
+  'company_size in ("11-50", "51-200", "201-500"); company_type = "Privately Held"; estimated_employee_count > 50.',
+  'People: "select from people where experiences.any(is_current = true and job_title is_similar_to (\"Logistics Manager\", \"Shipping Manager\")) limit N",',
+  'plus location_state = "New Jersey" or location_country = "United States". Combine with and/or and parentheses.',
+  'Always add a limit (10-25) to save the owner\'s Clay credits.',
+].join(" ");
 async function clayToolsFor(botName) {
   if (!S.mcp || S.clay === "absent") return null;
   const limits = await S.sample.limits().catch(() => null);
   if (!limits?.tools) return null;
-  const perms = await window.claude.use("permissions").catch(() => null);
-  if (perms) await perms.request(["mcp:" + CLAY]).catch(() => null);
-  const out = [];
-  for (const name of CLAY_TOOLS) {
-    let d = null;
-    try { d = await S.mcp.describeTool(CLAY, name); } catch { d = null; }
-    if (!d) continue;
-    const schemaText = JSON.stringify(d.inputSchema || {});
-    out.push({
-      name: name.replace(/[^A-Za-z0-9_-]/g, "_"),
-      description: String(d.description || name).slice(0, 1000),
-      ...(d.inputSchema && schemaText.length <= 4000 ? { inputSchema: d.inputSchema } : {}),
-      async execute(input, ctx) {
-        const st = step(`${botName} is searching Clay (${name})…`);
-        try {
-          const r = await S.mcp.callTool(CLAY, name, input, { signal: ctx.signal });
-          st.done(`${botName} searched Clay (${name})`);
-          const text = typeof r.payload === "string" ? r.payload : JSON.stringify(r.payload ?? r.content);
-          return text.length > 30000 ? text.slice(0, 30000) + " …(truncated)" : text;
-        } catch (e) {
-          st.fail(`Clay ${name} failed (${e?.code || "error"})`);
-          throw new Error(clayError(e));
-        }
-      },
-    });
-  }
-  if (!out.length) { S.clay = "absent"; renderConnections(); return null; }
-  S.clay = "available"; renderConnections();
-  return out;
+  const run = (label, fn) => async (input, ctx) => {
+    const st = step(`${botName}: ${label}…`);
+    try { const res = await fn(input, ctx.signal); st.done(`${botName}: ${label} done`); return res; }
+    catch (e) { st.fail(`${botName}: ${label} failed (${e?.code || "error"})`); throw new Error(clayError(e)); }
+  };
+  return [
+    { name: "clay_search_companies", description: "Find real companies in Clay. Returns companies (name, domain, industry, size, location) and a taskId. " + DSL_HELP,
+      inputSchema: { type: "object", properties: { dslQuery: { type: "string", description: 'Must start with "select from companies"' } }, required: ["dslQuery"] },
+      execute: run("searching Clay for companies", (i, sig) => callClay("search-companies", { dslQuery: String(i.dslQuery || "") }, sig)) },
+    { name: "clay_search_contacts", description: "Find people at specific companies (up to 10 domains per call). Returns contacts with entityId, name, title, company, LinkedIn, and a taskId. " + DSL_HELP,
+      inputSchema: { type: "object", properties: {
+        companyDomains: { type: "array", items: { type: "string" }, description: "Company domains, e.g. [\"compasslog.com\"]" },
+        dslQuery: { type: "string", description: 'Must start with "select from people"' } }, required: ["companyDomains", "dslQuery"] },
+      execute: run("searching Clay for contacts", (i, sig) => callClay("search-contacts", {
+        companyIdentifiers: (Array.isArray(i.companyDomains) ? i.companyDomains : [i.companyDomains]).map(String).filter(Boolean).slice(0, 10),
+        dslQuery: String(i.dslQuery || "") }, sig)) },
+    { name: "clay_load_more", description: "Next page (up to 20) of a company or contact search that returned hasMore: true. Returns a NEW taskId.",
+      inputSchema: { type: "object", properties: { taskId: { type: "string" } }, required: ["taskId"] },
+      execute: run("loading more Clay results", (i, sig) => callClay("load-more-search-results", { taskId: String(i.taskId) }, sig)) },
+    { name: "clay_find_emails", description: "Ask Clay to look up work emails for contacts from a contact search (uses Clay credits). Lookups finish in the background: read them with clay_read_results; a pending email shows as (in-progress).",
+      inputSchema: { type: "object", properties: { taskId: { type: "string", description: "taskId of the contact search" },
+        entityIds: { type: "array", items: { type: "string" }, description: "Contact entityIds to look up" } }, required: ["taskId", "entityIds"] },
+      execute: run("asking Clay for emails", (i, sig) => callClay("add-contact-data-points", {
+        taskId: String(i.taskId), dataPoints: [{ type: "Email" }], entityIds: (i.entityIds || []).map(String).slice(0, 25) }, sig)) },
+    { name: "clay_read_results", description: "Read the current state of a Clay search, including any emails found so far.",
+      inputSchema: { type: "object", properties: { taskId: { type: "string" }, entityIds: { type: "array", items: { type: "string" } } }, required: ["taskId"] },
+      execute: run("reading Clay results", (i, sig) => callClay("get-task-context", {
+        taskId: String(i.taskId), ...(Array.isArray(i.entityIds) && i.entityIds.length ? { entityIds: i.entityIds.map(String) } : {}) }, sig)) },
+  ];
 }
 function clayError(e) {
   switch (e?.code) {
@@ -693,7 +754,7 @@ async function delegate(name, task, signal) {
   const shape = {
     report: "what you did and anything the Manager should know (plain text)",
     ...(tools.has("crm_write") ? {
-      add_leads: [{ name: "", company: "", email: "", phone: "", status: "new", notes: "" }],
+      add_leads: [{ name: "", company: "", email: "", phone: "", status: "new", notes: "", ...(tools.has("find_leads") ? { clay_task_id: "optional", clay_entity_id: "optional" } : {}) }],
       update_leads: [{ id: "lead id", status: "optional", notes: "optional, replaces notes" }],
     } : {}),
     ...(tools.has("draft_email") || tools.has("draft_sms") ? {
@@ -706,7 +767,7 @@ async function delegate(name, task, signal) {
       `You are ${bot.name}, a bot employee at Salesbot. Your role: ${bot.role}.`,
       `Your instructions:\n${bot.instructions}`,
       `You can: ${[...tools].map((t) => TOOLS[t]).join("; ") || "only report back"}. You cannot send anything.`,
-      clayTools ? "Use the Clay tools to find real companies and contacts for this task. Only record companies, people, emails and phone numbers that Clay returned. Keep each search focused to save the owner's Clay credits; check get-credits-available first if the task is large." : (tools.has("find_leads") ? "Your Clay lead search is not available right now (the Clay connector is not connected or was not allowed). Say so in your report and do not invent leads." : "You cannot browse the web."),
+      clayTools ? "Use the Clay tools to find real companies and the right people there (shipping, logistics, supply chain, operations or purchasing roles), then ask Clay for their emails and read the results. Only record companies, people and emails that Clay returned. Save every person you find as a lead even if the email is still pending: put their title and LinkedIn URL in notes, and set clay_task_id and clay_entity_id so the owner can fetch the email later. Keep searches focused (limit 10-25) to save Clay credits." : (tools.has("find_leads") ? "Your Clay lead search is not available right now (the Clay connector is not connected or was not allowed). Say so in your report and do not invent leads." : "You cannot browse the web."),
       canRead ? `Lead book (JSON): ${JSON.stringify(leadDigest())}` : "",
       `Task from the Manager:\n${task}`,
       "Do the task now. Never invent contact details: only use addresses and numbers given to you or already in the lead book. Leave lists empty when there is nothing to add.",
@@ -721,7 +782,8 @@ async function delegate(name, task, signal) {
       if (!l || !String(l.name || "").trim()) continue;
       const id = shortId("L", taken); taken.add(id);
       const lead = { name: String(l.name).slice(0, 200), company: String(l.company || "").slice(0, 200), email: String(l.email || "").slice(0, 200), phone: String(l.phone || "").slice(0, 60),
-        status: STATUSES.includes(l.status) ? l.status : "new", notes: String(l.notes || "").slice(0, 2000), createdAt: Date.now(), updatedAt: Date.now(), addedBy: bot.name };
+        status: STATUSES.includes(l.status) ? l.status : "new", notes: String(l.notes || "").slice(0, 2000), createdAt: Date.now(), updatedAt: Date.now(), addedBy: bot.name,
+        ...(l.clay_task_id && l.clay_entity_id ? { clayTask: String(l.clay_task_id).slice(0, 100), clayEntity: String(l.clay_entity_id).slice(0, 100) } : {}) };
       await S.store.set("leads", id, lead);
       if (!S.leads.some((x) => x.id === id)) S.leads.push({ id, ...lead });
       did.push(`added lead ${id} ${lead.name}`);
