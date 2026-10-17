@@ -249,6 +249,10 @@ textarea, input, select {
     <div class="scroll" id="sub-outbox"></div>
     <div class="scroll" id="sub-leads" hidden>
       <div class="filter"><input id="leadSearch" placeholder="Search leads" aria-label="Search leads"></div>
+      <div class="filter" id="atButtons" hidden>
+        <button class="btn ghost small" type="button" id="atSyncBtn">Sync to Airtable</button>
+        <button class="btn ghost small" type="button" id="atImportBtn">Import from Airtable</button>
+      </div>
       <div id="leadList"></div>
     </div>
   </section>
@@ -275,7 +279,10 @@ const TOOLS = {
   draft_email: "draft emails (they wait for the owner's approval)",
   draft_sms: "draft text messages (they wait for the owner's approval)",
   find_leads: "look up real companies and contacts (with emails and phones) in the owner's Clay account",
+  airtable: "search and read the owner's Airtable lead table (every lead in the lead book is also synced there automatically)",
 };
+// Airtable: where leads sync to. Saved in this page's data (config/airtable) so it can be changed later.
+const AIRTABLE = "Airtable";
 // Clay tools a find_leads bot may call (names and inputs checked against the live Clay connector).
 const CLAY = "Clay";
 const CLAY_TOOLS = ["search-companies", "search-contacts", "load-more-search-results", "add-contact-data-points", "get-task-context"];
@@ -285,7 +292,7 @@ const MAX_ROUNDS = 4;
 
 const S = {
   bots: [], leads: [], outbox: [], chat: [],
-  sample: null, store: null, readOnly: false, busy: false, ctl: null, tier: "default", lastError: "", mcp: null, clay: "checking",
+  sample: null, store: null, readOnly: false, busy: false, ctl: null, tier: "default", lastError: "", mcp: null, clay: "checking", at: null, atState: "checking", atNote: "",
   live: null, // the in-progress manager turn: {steps: [{text, state}]}
 };
 
@@ -431,7 +438,8 @@ function renderLeads() {
   $("leadList").replaceChildren(...(leads.length ? leads.map((l) => {
     const sel = el("select", { "aria-label": `Status of ${l.name}`, disabled: S.readOnly },
       STATUSES.map((s) => el("option", { value: s, textContent: s, selected: s === l.status })));
-    sel.onchange = () => S.store.update("leads", l.id, { status: sel.value, updatedAt: Date.now() }).catch(showStoreError);
+    sel.onchange = () => S.store.update("leads", l.id, { status: sel.value, updatedAt: Date.now() })
+      .then(() => syncLeads([{ ...l, status: sel.value }])).catch(showStoreError);
     return el("div", { className: "lead" },
       el("div", {}, el("div", { className: "n", textContent: l.name }), el("div", { className: "c", textContent: l.company || "" })),
       el("div", { style: "text-align:right" }, sel, el("div", { className: "id", textContent: l.id })),
@@ -452,6 +460,7 @@ function fetchEmailButton(l) {
       const email = r.contacts?.[0]?.email || "";
       if (email && !email.startsWith("(")) {
         await S.store.update("leads", l.id, { email, updatedAt: Date.now() });
+        syncLeads([{ ...l, email }]);
         b.textContent = "Email saved";
       } else { b.textContent = email === "(not found)" ? "Clay found no email" : "Still looking, try later"; b.disabled = email === "(not found)"; if (!b.disabled) setTimeout(() => (b.textContent = "Fetch email"), 3000); }
     } catch (e) { b.textContent = clayError(e).slice(0, 80); b.disabled = false; }
@@ -730,6 +739,108 @@ function clayError(e) {
   }
 }
 
+// ---------- Airtable sync ----------------------------------------------------------
+// Every lead write in the page is mirrored to the owner's Airtable table, matched on the
+// "Salesbot ID" column so a lead synced twice updates its row instead of adding one.
+const leadTitle = (l) => l.title || (String(l.notes || "").match(/Title:\s*([^.\n]+)/) || [])[1]?.trim() || "";
+const leadLinkedin = (l) => (l.linkedin || (String(l.notes || "").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/[^\s,)]+/) || [])[0] || "").replace(/[.;:]+$/, "");
+function atRecord(l) {
+  const F = S.at.fields, f = {};
+  const put = (k, v) => { if (F[k] && v !== undefined) f[F[k]] = v; };
+  put("sid", l.id); put("name", l.name || ""); put("company", l.company || ""); put("title", leadTitle(l));
+  put("status", STATUSES.includes(l.status) ? l.status : "new"); put("notes", l.notes || ""); put("addedBy", l.addedBy || "");
+  put("linkedin", leadLinkedin(l) || null);
+  if (l.email) put("email", l.email);
+  if (l.phone) put("phone", l.phone);
+  return { fields: f };
+}
+async function syncLeads(leads) {
+  if (!S.at || !S.mcp || !leads.length || S.atState === "absent") return;
+  try {
+    for (let i = 0; i < leads.length; i += 50) {
+      await S.mcp.callTool(AIRTABLE, "update_records_for_table", {
+        baseId: S.at.baseId, tableId: S.at.tableId, typecast: true,
+        performUpsert: { fieldIdsToMergeOn: [S.at.fields.sid] },
+        records: leads.slice(i, i + 50).map(atRecord),
+      });
+    }
+    S.atState = "available";
+    S.atNote = `Synced ${leads.length === 1 ? "1 lead" : leads.length + " leads"} at ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+  } catch (e) {
+    S.atNote = `Sync failed: ${atError(e)}`;
+  }
+  renderConnections();
+}
+const syncLeadId = (id) => { const l = S.leads.find((x) => x.id === id); if (l) syncLeads([l]); };
+function atError(e) {
+  switch (e?.code) {
+    case "server_not_connected": return "Airtable is not connected (claude.ai Settings > Connectors).";
+    case "needs_reauth": return "Reconnect Airtable in claude.ai Settings > Connectors.";
+    case "not_in_manifest": case "approval_required": return "This page wasn't allowed to use Airtable.";
+    case "tool_error": return String(e.message || "Airtable error").slice(0, 200);
+    default: return `${e?.code || "error"}: ${String(e?.message || "").slice(0, 160)}`;
+  }
+}
+// Airtable rows back to plain {field name: value}; select values come back as {id, name, color}.
+function atPlain(rec) {
+  const byId = Object.fromEntries(Object.entries(S.at.fields).map(([k, id]) => [id, k]));
+  const out = { recordId: rec.id };
+  for (const [fid, v] of Object.entries(rec.cellValuesByFieldId || rec.fields || {})) {
+    const k = byId[fid] || fid;
+    out[k] = v && typeof v === "object" && !Array.isArray(v) ? (v.name ?? JSON.stringify(v)) : v;
+  }
+  return out;
+}
+async function atList() {
+  const r = await S.mcp.callTool(AIRTABLE, "list_records_for_table", {
+    baseId: S.at.baseId, tableId: S.at.tableId, pageSize: 500, fieldIds: Object.values(S.at.fields) });
+  return (r.payload?.records || []).map(atPlain);
+}
+async function importFromAirtable(btn) {
+  if (!S.at || !S.mcp) return;
+  btn.disabled = true; btn.textContent = "Importing…";
+  try {
+    const rows = await atList();
+    const taken = new Set(S.leads.map((l) => l.id));
+    const fresh = [];
+    for (const r of rows) {
+      if (r.sid && taken.has(r.sid)) continue;
+      if (!String(r.name || "").trim()) continue;
+      const id = r.sid && /^L[a-z0-9]{4}$/.test(r.sid) ? r.sid : shortId("L", taken); taken.add(id);
+      const lead = { name: String(r.name).slice(0, 200), company: String(r.company || ""), title: String(r.title || ""), email: String(r.email || ""),
+        phone: String(r.phone || ""), linkedin: String(r.linkedin || ""), status: STATUSES.includes(r.status) ? r.status : "new",
+        notes: String(r.notes || "").slice(0, 2000), createdAt: Date.now(), updatedAt: Date.now(), addedBy: "airtable import" };
+      await S.store.set("leads", id, lead);
+      fresh.push({ id, ...lead });
+    }
+    await syncLeads(fresh);
+    btn.textContent = fresh.length ? `Imported ${fresh.length}` : "Nothing new";
+  } catch (e) { btn.textContent = "Import failed"; S.atNote = `Import failed: ${atError(e)}`; renderConnections(); }
+  setTimeout(() => { btn.textContent = "Import from Airtable"; btn.disabled = false; }, 3000);
+}
+function airtableToolsFor(botName) {
+  if (!S.at || !S.mcp || S.atState === "absent") return [];
+  const run = (label, fn) => async (input) => {
+    const st = step(`${botName}: ${label}…`);
+    try { const r = await fn(input); st.done(`${botName}: ${label} done`); return r; }
+    catch (e) { st.fail(`${botName}: ${label} failed (${e?.code || "error"})`); throw new Error(atError(e)); }
+  };
+  return [
+    { name: "airtable_search_leads", description: "Free-text search of the owner's Airtable lead table (name, company, title, email, notes). Returns matching rows.",
+      inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+      execute: run("searching Airtable", async (i) => {
+        const r = await S.mcp.callTool(AIRTABLE, "search_records", { baseId: S.at.baseId, table: S.at.tableId, query: String(i.query || ""), fields: "ALL_SEARCHABLE_FIELDS", limit: 50 });
+        return (r.payload?.records || []).map(atPlain);
+      }) },
+    { name: "airtable_list_leads", description: "List rows in the owner's Airtable lead table, optionally only one status (new, contacted, qualified, proposal, won, lost).",
+      inputSchema: { type: "object", properties: { status: { type: "string" } } },
+      execute: run("reading Airtable", async (i) => {
+        const rows = await atList();
+        return (i.status ? rows.filter((r) => r.status === i.status) : rows).slice(0, 200);
+      }) },
+  ];
+}
+
 function renderConnections() {
   const box = $("connections");
   if (!box) return;
@@ -740,6 +851,11 @@ function renderConnections() {
       el("span", { className: `pill ${state[1] === "ok" ? "approved" : ""}`, textContent: state[0] })),
     S.clay === "available" ? null : el("p", { className: "muted", style: "font-size:12px;margin:4px 0 0",
       textContent: "To let bots find real leads, connect Clay in claude.ai Settings > Connectors, then reload this page. Bots with the find_leads permission use your Clay credits." }),
+    el("div", { className: "conn-row", style: "margin-top:8px" },
+      el("span", { textContent: S.at ? `Airtable · ${S.at.baseName || "base"}` : "Airtable" }),
+      el("span", { className: `pill ${S.atState === "available" ? "approved" : ""}`,
+        textContent: !S.at ? "Not set up" : { checking: "Checking…", available: "Syncing", absent: "Not connected" }[S.atState] || "Unavailable" })),
+    S.atNote ? el("p", { className: "muted", style: "font-size:12px;margin:4px 0 0", textContent: S.atNote }) : null,
   );
 }
 
@@ -750,11 +866,14 @@ async function delegate(name, task, signal) {
   const tools = new Set(bot.tools || []);
   const st = step(`${bot.name} is working…`);
   const canRead = tools.has("crm_read") || tools.has("crm_write");
-  const clayTools = tools.has("find_leads") ? await clayToolsFor(bot.name) : null;
+  const clayTools = [
+    ...(tools.has("find_leads") ? (await clayToolsFor(bot.name)) || [] : []),
+    ...(tools.has("airtable") ? airtableToolsFor(bot.name) : []),
+  ];
   const shape = {
     report: "what you did and anything the Manager should know (plain text)",
     ...(tools.has("crm_write") ? {
-      add_leads: [{ name: "", company: "", email: "", phone: "", status: "new", notes: "", ...(tools.has("find_leads") ? { clay_task_id: "optional", clay_entity_id: "optional" } : {}) }],
+      add_leads: [{ name: "", company: "", title: "", email: "", phone: "", linkedin: "", status: "new", notes: "", ...(tools.has("find_leads") ? { clay_task_id: "optional", clay_entity_id: "optional" } : {}) }],
       update_leads: [{ id: "lead id", status: "optional", notes: "optional, replaces notes" }],
     } : {}),
     ...(tools.has("draft_email") || tools.has("draft_sms") ? {
@@ -767,15 +886,17 @@ async function delegate(name, task, signal) {
       `You are ${bot.name}, a bot employee at Salesbot. Your role: ${bot.role}.`,
       `Your instructions:\n${bot.instructions}`,
       `You can: ${[...tools].map((t) => TOOLS[t]).join("; ") || "only report back"}. You cannot send anything.`,
-      clayTools ? "Use the Clay tools to find real companies and the right people there (shipping, logistics, supply chain, operations or purchasing roles), then ask Clay for their emails and read the results. Only record companies, people and emails that Clay returned. Save every person you find as a lead even if the email is still pending: put their title and LinkedIn URL in notes, and set clay_task_id and clay_entity_id so the owner can fetch the email later. Keep searches focused (limit 10-25) to save Clay credits." : (tools.has("find_leads") ? "Your Clay lead search is not available right now (the Clay connector is not connected or was not allowed). Say so in your report and do not invent leads." : "You cannot browse the web."),
+      clayTools.some((t) => t.name.startsWith("airtable_")) ? "Use the Airtable tools to look up leads the owner keeps in Airtable. Leads you add or update in the lead book are copied to Airtable automatically, so don't try to write to Airtable yourself." : "",
+      clayTools.some((t) => t.name.startsWith("clay_")) ? "Use the Clay tools to find real companies and the right people there (shipping, logistics, supply chain, operations or purchasing roles), then ask Clay for their emails and read the results. Only record companies, people and emails that Clay returned. Save every person you find as a lead even if the email is still pending: put their title and LinkedIn URL in notes, and set clay_task_id and clay_entity_id so the owner can fetch the email later. Keep searches focused (limit 10-25) to save Clay credits." : (tools.has("find_leads") ? "Your Clay lead search is not available right now (the Clay connector is not connected or was not allowed). Say so in your report and do not invent leads." : "You cannot browse the web."),
       canRead ? `Lead book (JSON): ${JSON.stringify(leadDigest())}` : "",
       `Task from the Manager:\n${task}`,
       "Do the task now. Never invent contact details: only use addresses and numbers given to you or already in the lead book. Leave lists empty when there is nothing to add.",
       `Reply with ONLY a JSON object in this shape: ${JSON.stringify(shape)}`,
-    ].filter(Boolean).join("\n\n"), signal, clayTools);
+    ].filter(Boolean).join("\n\n"), signal, clayTools.length ? clayTools : null);
   } catch (e) { st.fail(`${bot.name} couldn't finish (${errDetail(e) || "no details"})`); if (e?.code === "cancelled") throw e; return `delegate to ${bot.name}: failed (${errText(e)}).`; }
 
   const did = [];
+  const changed = [];
   if (tools.has("crm_write")) {
     const taken = new Set(S.leads.map((l) => l.id));
     for (const l of (Array.isArray(out?.add_leads) ? out.add_leads : []).slice(0, 50)) {
@@ -783,9 +904,11 @@ async function delegate(name, task, signal) {
       const id = shortId("L", taken); taken.add(id);
       const lead = { name: String(l.name).slice(0, 200), company: String(l.company || "").slice(0, 200), email: String(l.email || "").slice(0, 200), phone: String(l.phone || "").slice(0, 60),
         status: STATUSES.includes(l.status) ? l.status : "new", notes: String(l.notes || "").slice(0, 2000), createdAt: Date.now(), updatedAt: Date.now(), addedBy: bot.name,
+        title: String(l.title || "").slice(0, 200), linkedin: String(l.linkedin || "").slice(0, 300),
         ...(l.clay_task_id && l.clay_entity_id ? { clayTask: String(l.clay_task_id).slice(0, 100), clayEntity: String(l.clay_entity_id).slice(0, 100) } : {}) };
       await S.store.set("leads", id, lead);
       if (!S.leads.some((x) => x.id === id)) S.leads.push({ id, ...lead });
+      changed.push({ id, ...lead });
       did.push(`added lead ${id} ${lead.name}`);
     }
     for (const u of (Array.isArray(out?.update_leads) ? out.update_leads : []).slice(0, 50)) {
@@ -795,9 +918,11 @@ async function delegate(name, task, signal) {
       if (STATUSES.includes(u.status)) patch.status = u.status;
       if (typeof u.notes === "string" && u.notes.trim()) patch.notes = u.notes.slice(0, 2000);
       await S.store.update("leads", lead.id, patch);
+      changed.push({ ...lead, ...patch });
       did.push(`updated lead ${lead.id}`);
     }
   }
+  if (changed.length) syncLeads(changed);
   let n = Math.max(0, ...S.outbox.map((d) => d.n || 0));
   for (const d of (Array.isArray(out?.drafts) ? out.drafts : []).slice(0, 30)) {
     const kind = d?.kind === "sms" ? "sms" : "email";
@@ -876,6 +1001,12 @@ $("hireForm").addEventListener("submit", (e) => {
   send(`Hire a bot for this job: ${job}`);
 });
 $("leadSearch").addEventListener("input", renderLeads);
+$("atSyncBtn").addEventListener("click", async (e) => {
+  const b = e.currentTarget; b.disabled = true; b.textContent = "Syncing…";
+  await syncLeads(S.leads);
+  b.textContent = "Sync to Airtable"; b.disabled = false;
+});
+$("atImportBtn").addEventListener("click", (e) => importFromAirtable(e.currentTarget));
 document.querySelectorAll(".subtabs button").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll(".subtabs button").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
   $("sub-outbox").hidden = b.dataset.sub !== "outbox"; $("sub-leads").hidden = b.dataset.sub !== "leads";
@@ -906,6 +1037,15 @@ renderAll();
   const onErr = (e) => { if (e?.code !== "unavailable") setStatus("Live updates stopped. Reload the page.", true); };
   S.store.sub("bots", (rows) => { S.bots = rows; renderTeam(); }, onErr);
   S.store.sub("leads", (rows) => { S.leads = rows; renderLeads(); }, onErr);
+  S.store.sub("config", (rows) => {
+    const cfg = rows.find((r) => r.id === "airtable");
+    S.at = cfg && cfg.baseId && cfg.tableId && cfg.fields?.sid ? cfg : null;
+    $("atButtons").hidden = !(S.at && S.mcp && !S.readOnly);
+    renderConnections();
+  }, onErr);
+  if (!mcp) S.atState = "absent";
+  else mcp.listTools(AIRTABLE).then((r) => { S.atState = r?.servers?.length && r.servers[0].tools?.length ? "available" : "absent"; renderConnections(); })
+    .catch(() => { S.atState = "absent"; renderConnections(); });
   S.store.sub("outbox", (rows) => { S.outbox = rows; renderOutbox(); }, onErr);
   S.store.sub("chat", (rows) => {
     const pending = S.chat.filter((m) => String(m.id).startsWith("pending-") && !rows.some((r) => r.at === m.at && r.role === m.role));
