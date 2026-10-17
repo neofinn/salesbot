@@ -225,7 +225,7 @@ textarea, input, select {
   </section>
 
   <section class="pane show" id="pane-chat" aria-label="Manager">
-    <div class="head"><h2>Manager</h2><span class="eyebrow">Runs on Claude</span></div>
+    <div class="head"><h2>Manager</h2><button class="btn ghost small" id="checkBtn" type="button">Check Claude</button></div>
     <div class="scroll" id="chatScroll"><div class="log" id="log"></div></div>
     <div class="notice" id="chatNotice" hidden></div>
     <form class="compose" id="compose">
@@ -278,7 +278,7 @@ const MAX_ROUNDS = 4;
 
 const S = {
   bots: [], leads: [], outbox: [], chat: [],
-  sample: null, store: null, readOnly: false, busy: false, ctl: null,
+  sample: null, store: null, readOnly: false, busy: false, ctl: null, tier: "default", lastError: "",
   live: null, // the in-progress manager turn: {steps: [{text, state}]}
 };
 
@@ -439,6 +439,7 @@ function renderAll() { renderTeam(); renderChat(); renderOutbox(); renderLeads()
 function syncCompose() {
   $("sendBtn").hidden = S.busy; $("stopBtn").hidden = !S.busy;
   $("input").disabled = S.readOnly; $("sendBtn").disabled = S.readOnly || !S.sample;
+  $("checkBtn").disabled = S.busy;
   $("hireBtn").disabled = S.busy || S.readOnly || !S.sample;
   $("hireForm").hidden = S.readOnly;
 }
@@ -456,10 +457,26 @@ const SAMPLE_ERRORS = {
   prompt_too_large: "There's too much to read at once. Clear some leads or start a shorter request.",
   cancelled: "Stopped.",
 };
-const errText = (e) => SAMPLE_ERRORS[e?.code] || `Something went wrong (${e?.code || "error"}). Try again.`;
+const errText = (e) => SAMPLE_ERRORS[e?.code] || `Claude didn't answer (${e?.code || "error"}). Try again in a moment.`;
+const errDetail = (e) => [e?.code, e?.message].filter(Boolean).join(": ").slice(0, 400);
+const parseJson = (text) => {
+  const t = String(text || "").trim();
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const body = fence ? fence[1] : t.slice(Math.min(...["{", "["].map((c) => t.indexOf(c)).filter((i) => i >= 0)), Math.max(t.lastIndexOf("}"), t.lastIndexOf("]")) + 1);
+  return JSON.parse(body);
+};
 
+// One structured call. If the standard model errors upstream, try once more on the fast model
+// with a plain call (parsed here), so one unavailable model doesn't stop the whole team.
 async function askJson(prompt, signal) {
-  return S.sample.json(prompt, { signal, cache: false, modelTier: "default" });
+  try {
+    return await S.sample.json(prompt, { signal, cache: false, modelTier: S.tier });
+  } catch (e) {
+    if (e?.code !== "upstream_error" || S.tier === "quick") throw e;
+    S.lastError = errDetail(e);
+    const { text } = await S.sample(prompt + "\n\nReply with the JSON only.", { signal, cache: false, modelTier: "quick" });
+    try { return parseJson(text); } catch { throw { code: "invalid_json", message: "fast-model reply was not JSON", text }; }
+  }
 }
 
 function step(text) {
@@ -508,7 +525,7 @@ async function runManager(message, signal) {
     const st = step(round === 1 ? "Manager is planning…" : "Manager is reviewing the results…");
     let plan;
     try { plan = await askJson(managerPrompt(history, message, results, round), signal); }
-    catch (e) { st.fail(round === 1 ? "Manager couldn't start" : "Manager couldn't finish"); throw e; }
+    catch (e) { st.fail(`${round === 1 ? "Manager couldn't start" : "Manager couldn't finish"} (${errDetail(e) || "no details"})`); throw e; }
     const actions = Array.isArray(plan?.actions) ? plan.actions.slice(0, 6) : [];
     st.done(round === 1 ? "Manager made a plan" : "Manager reviewed the results");
     if (!actions.length || round === MAX_ROUNDS) return String(plan?.reply || "Done.");
@@ -701,6 +718,24 @@ $("compose").addEventListener("submit", (e) => { e.preventDefault(); send($("inp
 $("input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send($("input").value); } });
 $("input").addEventListener("input", (e) => { e.target.style.height = "auto"; e.target.style.height = Math.min(160, e.target.scrollHeight) + "px"; });
 $("stopBtn").addEventListener("click", () => S.ctl?.abort());
+// One tiny request per tier, on click, to show exactly what Claude returns for this account.
+$("checkBtn").addEventListener("click", async () => {
+  const b = $("checkBtn");
+  if (!S.sample) { notice("Claude isn't available in this view. Open the page in claude.ai while signed in.", true); return; }
+  b.disabled = true; notice("Checking Claude…");
+  const results = [];
+  for (const tier of ["default", "quick"]) {
+    try {
+      const r = await S.sample("Reply with exactly: OK", { cache: false, modelTier: tier });
+      results.push(`${tier}: OK (answered by ${r.modelTierApplied})`);
+    } catch (e) { results.push(`${tier}: ${errDetail(e) || "failed"}`); }
+  }
+  const ok = results.filter((r) => r.includes(": OK"));
+  S.tier = ok.length && !results[0].includes(": OK") ? "quick" : "default";
+  notice(`Claude check: ${results.join(" · ")}${S.tier === "quick" ? " · The team will use the fast model." : ""}`, !ok.length);
+  S.store.set("diagnostics", "last", { at: Date.now(), results }).catch(() => {});
+  b.disabled = false;
+});
 $("hireForm").addEventListener("submit", (e) => {
   e.preventDefault();
   const job = $("hireInput").value.trim();
