@@ -4,9 +4,9 @@ import sys
 
 import pytest
 
+from salesbot.config import Settings
 from salesbot.llm import LLMError, LLMGateway, Message, ToolCall, ToolResult, ToolSpec
 from salesbot.llm.claude_code_provider import ClaudeCodeProvider
-from salesbot.config import Settings
 
 TOOLS = [ToolSpec("list_team", "List the team.", {"type": "object", "properties": {}})]
 

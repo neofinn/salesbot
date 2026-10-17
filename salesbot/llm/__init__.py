@@ -5,7 +5,7 @@ from __future__ import annotations
 from ..config import Settings
 from .base import LLMError, LLMResponse, Message, Provider, ToolCall, ToolResult, ToolSpec
 
-PROVIDERS = ("anthropic", "openai", "xai", "gemini", "claude_code")
+PROVIDERS = ("anthropic", "openai", "xai", "gemini", "openrouter", "claude_code")
 
 __all__ = [
     "PROVIDERS",
@@ -26,6 +26,11 @@ class LLMGateway:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._providers: dict[str, Provider] = {}
+
+    def reset(self, settings: Settings) -> None:
+        """Use new settings; built-in provider clients are recreated on next use."""
+        self.settings = settings
+        self._providers = {n: p for n, p in self._providers.items() if n not in PROVIDERS}
 
     def register(self, provider: Provider) -> None:
         """Install a provider instance (used by tests and custom backends)."""
@@ -93,6 +98,10 @@ class LLMGateway:
             from .openai_provider import OpenAICompatibleProvider
 
             return OpenAICompatibleProvider("xai", key, base_url="https://api.x.ai/v1")
+        if name == "openrouter":
+            from .openai_provider import OpenAICompatibleProvider
+
+            return OpenAICompatibleProvider("openrouter", key, base_url="https://openrouter.ai/api/v1")
         if name == "gemini":
             from .gemini_provider import GeminiProvider
 

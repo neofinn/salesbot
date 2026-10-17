@@ -22,6 +22,7 @@ def _make_team(settings: Settings) -> Team:
 async def _chat(settings: Settings) -> None:
     team = _make_team(settings)
     await team.store.open()
+    await team.load_settings()
     print("salesbot chat - talk to the Manager. /help for commands, Ctrl-D to quit.")
     try:
         while True:

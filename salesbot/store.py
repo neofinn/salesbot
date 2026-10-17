@@ -55,6 +55,10 @@ CREATE TABLE IF NOT EXISTS leads (
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 LEAD_FIELDS = ("name", "company", "email", "phone", "status", "notes")
@@ -181,6 +185,22 @@ class Store:
 
     async def clear_chat(self, chat_id: str) -> None:
         await self.db.execute("DELETE FROM chat_history WHERE chat_id = ?", (chat_id,))
+        await self.db.commit()
+
+    # --- settings saved from the web app ------------------------------------
+
+    async def get_settings(self) -> dict[str, str]:
+        async with self.db.execute("SELECT key, value FROM settings") as cur:
+            rows = await cur.fetchall()
+        return {r["key"]: r["value"] for r in rows}
+
+    async def set_settings(self, values: dict[str, str | None]) -> None:
+        """Save values; None or "" removes the saved value (falling back to the environment)."""
+        for key, value in values.items():
+            if value is None or value == "":
+                await self.db.execute("DELETE FROM settings WHERE key = ?", (key,))
+            else:
+                await self.db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
         await self.db.commit()
 
     # --- CRM --------------------------------------------------------------
