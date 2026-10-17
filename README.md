@@ -5,7 +5,7 @@ it delegates to bots on the team, and when nobody fits the job, the **Recruiter*
 bot and **HR** reviews it before it's hired. Each bot can run on a different LLM (Claude, GPT,
 Grok or Gemini) and is given only the tools its job needs: web search, email, SMS and a built-in CRM.
 
-You talk to the team over **Telegram** (or a local terminal chat), and it runs anywhere Docker runs.
+You talk to the team from a **web app**, over **Telegram**, or in a terminal chat, and it runs anywhere Docker runs.
 
 ```
  You (Telegram) ──► Manager ──► delegate_task ──► worker bots ──► tools (web, email, SMS, CRM)
@@ -21,15 +21,27 @@ pip install -e '.[dev]'
 cp .env.example .env        # fill in at least one LLM key and the Telegram settings
 set -a; . ./.env; set +a
 
-python -m salesbot chat      # local terminal chat with the Manager
-python -m salesbot telegram  # run the Telegram bot
+python -m salesbot web       # web app on http://127.0.0.1:8000
+python -m salesbot telegram  # Telegram bot
+python -m salesbot chat      # terminal chat with the Manager
 ```
 
-Or in the cloud / on a server:
+Or in the cloud / on a server (set `SALESBOT_WEB_TOKEN` in `.env` first):
 
 ```bash
-docker compose up -d --build
+docker compose up -d --build                       # web app on port 8000
+docker compose --profile telegram up -d --build    # web app + Telegram bot
 ```
+
+## Web app
+
+Chat with the Manager on the left, and on the right manage the **Team** (hire / fire),
+**Approvals** (approve or reject queued emails and texts) and **Leads**. Header pills show which
+providers and channels are configured. Works on phones too.
+
+Anywhere other than localhost, the web app requires `SALESBOT_WEB_TOKEN`; you sign in with it once
+(stored in an HTTP-only cookie), or send it as `Authorization: Bearer <token>` to the JSON API under
+`/api/`. It listens on `SALESBOT_WEB_HOST`/`SALESBOT_WEB_PORT` (or `PORT`, as set by most hosts).
 
 Data (roster, tasks, approvals, chat memory, leads) lives in SQLite under `SALESBOT_DATA_DIR`
 (a Docker volume in compose).
@@ -42,7 +54,7 @@ Just write normally, e.g.:
 - "Ask the lead researcher for 10 more clinics, then have someone draft a friendly intro email to each."
 - "Fire the email writer, we don't need it anymore."
 
-Commands (Telegram and terminal chat):
+Commands (web chat, Telegram and terminal chat):
 
 | Command | What it does |
 |---|---|
@@ -57,6 +69,7 @@ Commands (Telegram and terminal chat):
 
 - **Approval queue:** with `SALESBOT_REQUIRE_APPROVAL=true` (the default), bots can only *queue*
   emails and SMS. Nothing is sent until you `/approve` it.
+- **Web sign-in:** the web app refuses to listen beyond localhost without `SALESBOT_WEB_TOKEN`.
 - **Telegram allowlist:** only user IDs in `TELEGRAM_ALLOWED_USER_IDS` can command the team.
 - **Least privilege:** each hired bot only gets the tools in its spec; HR is instructed to reject bots
   with more tools than the job needs, or that would spam or deceive.
@@ -86,6 +99,7 @@ salesbot/
   llm/                 provider-neutral gateway + Claude / OpenAI / xAI / Gemini adapters
   tools/               web search & fetch, email, SMS, CRM
   store.py             SQLite persistence
+  webapp.py, web/      web app (FastAPI + a single-page UI)
   telegram_bot.py      Telegram front-end
   commands.py          slash commands shared by Telegram and terminal chat
 tests/                 offline tests using a scripted fake LLM

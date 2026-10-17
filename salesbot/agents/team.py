@@ -104,6 +104,12 @@ class Team:
             reply = await self.manager().run(text, history)
         except LLMError as exc:
             reply = f"Configuration problem: {exc}"
+        except Exception as exc:  # provider SDK errors: bad/missing key, network, rate limits
+            log.exception("manager failed")
+            reply = (
+                f"The Manager couldn't reach its AI model ({self.settings.default_model}): {exc}\n"
+                "Check that the API key for this provider is set and valid."
+            )
         await self.store.add_chat(chat_id, "user", text)
         await self.store.add_chat(chat_id, "assistant", reply)
         return reply

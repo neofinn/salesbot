@@ -1,4 +1,4 @@
-"""Entry point: `python -m salesbot telegram` or `python -m salesbot chat`."""
+"""Entry point: `python -m salesbot web|telegram|chat`."""
 
 from __future__ import annotations
 
@@ -46,14 +46,22 @@ def _telegram(settings: Settings) -> None:
     app.run_polling()
 
 
+def _web(settings: Settings) -> None:
+    from .webapp import serve
+
+    serve(_make_team(settings))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="salesbot")
-    parser.add_argument("mode", nargs="?", default="telegram", choices=["telegram", "chat"])
+    parser.add_argument("mode", nargs="?", default="telegram", choices=["web", "telegram", "chat"])
     args = parser.parse_args()
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"), format="%(asctime)s %(name)s %(message)s")
     settings = Settings.from_env()
     if args.mode == "chat":
         asyncio.run(_chat(settings))
+    elif args.mode == "web":
+        _web(settings)
     else:
         _telegram(settings)
 

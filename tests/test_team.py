@@ -134,3 +134,12 @@ async def test_crm_export_csv(team, fake, settings):
     assert not result.is_error and "Exported 1 leads" in result.content
     path = result.content.split(" to ", 1)[1].rstrip(".")
     assert open(path).read().splitlines() == ["id,name,company,email,phone,status,notes", "1,Jane,Acme,jane@acme.test,,new,"]
+
+
+async def test_provider_failure_gives_friendly_reply(team, fake):
+    async def boom(*args, **kwargs):
+        raise RuntimeError("401 invalid x-api-key")
+
+    fake.complete = boom
+    reply = await team.handle("c", "hi")
+    assert reply.startswith("The Manager couldn't reach its AI model (fake:test): 401 invalid x-api-key")

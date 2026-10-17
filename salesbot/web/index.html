@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>salesbot</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #ffffff; --text: #1a1d23; --muted: #626a77; --line: #e3e6eb;
+    --accent: #2457d6; --accent-text: #ffffff; --me: #2457d6; --me-text: #ffffff; --bot: #eef1f5;
+    --ok: #157f3b; --warn: #a15c00; --bad: #b42318; --chip: #eef1f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111318; --panel: #1a1d24; --text: #e7e9ee; --muted: #9aa3b2; --line: #2a2f39;
+      --accent: #5b8cff; --accent-text: #0b0d12; --me: #3a6df0; --me-text: #ffffff; --bot: #232833;
+      --ok: #4cc17a; --warn: #e3a33b; --bad: #ff6b5e; --chip: #232833;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; }
+  .pills { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
+  .pill { font-size: 12px; padding: 3px 8px; border-radius: 999px; background: var(--chip); color: var(--muted); }
+  .pill.on { color: var(--ok); }
+  .pill.off { color: var(--muted); text-decoration: line-through; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; padding: 16px 20px; height: calc(100vh - 58px); }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; height: auto; padding: 12px 16px; } .chat { height: 70vh; } }
+  @media (max-width: 600px) { header { padding: 10px 16px; } header h1 { flex: 1; } .pills { order: 3; flex-basis: 100%; flex-wrap: nowrap; overflow-x: auto; } .pill { white-space: nowrap; } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; display: flex; flex-direction: column; min-height: 0; }
+  .chat .log { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 80%; padding: 9px 13px; border-radius: 14px; white-space: pre-wrap; word-wrap: break-word; }
+  .msg.user { align-self: flex-end; background: var(--me); color: var(--me-text); border-bottom-right-radius: 4px; }
+  .msg.assistant { align-self: flex-start; background: var(--bot); border-bottom-left-radius: 4px; }
+  .msg.thinking { color: var(--muted); font-style: italic; }
+  .empty { color: var(--muted); margin: auto; text-align: center; max-width: 420px; }
+  .empty button { margin: 4px; }
+  form.send { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--line); }
+  textarea, input { flex: 1; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; resize: none; }
+  button { font: inherit; border: 0; border-radius: 10px; padding: 9px 14px; background: var(--accent); color: var(--accent-text); cursor: pointer; }
+  button.ghost { background: var(--chip); color: var(--text); }
+  button.danger { background: transparent; color: var(--bad); padding: 4px 8px; }
+  button:disabled { opacity: .5; cursor: default; }
+  .tabs { display: flex; border-bottom: 1px solid var(--line); }
+  .tabs button { flex: 1; background: transparent; color: var(--muted); border-radius: 0; padding: 12px 6px; border-bottom: 2px solid transparent; }
+  .tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+  .badge { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: var(--warn); color: #fff; font-size: 11px; }
+  .pane { flex: 1; overflow-y: auto; padding: 12px; display: none; }
+  .pane.active { display: block; }
+  .card { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+  .card h3 { margin: 0 0 2px; font-size: 15px; display: flex; justify-content: space-between; align-items: center; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .tools { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+  .tools span { font-size: 11px; padding: 2px 7px; border-radius: 6px; background: var(--chip); }
+  .body { white-space: pre-wrap; margin: 8px 0; font-size: 14px; }
+  .row { display: flex; gap: 8px; }
+  .staff { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; }
+  .hire { display: flex; gap: 8px; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>salesbot</h1>
+  <div class="pills" id="status"></div>
+  <form method="post" action="/logout"><button class="ghost" title="Sign out">Sign out</button></form>
+</header>
+<main>
+  <section class="chat">
+    <div class="log" id="log"></div>
+    <form class="send" id="send">
+      <textarea id="input" rows="2" placeholder="Tell the Manager what you need…" title="Enter to send, Shift+Enter for a new line"></textarea>
+      <button id="sendBtn">Send</button>
+    </form>
+  </section>
+  <section>
+    <div class="tabs">
+      <button data-tab="team" class="active">Team</button>
+      <button data-tab="pending">Approvals<span class="badge" id="pendingCount" hidden></span></button>
+      <button data-tab="leads">Leads</button>
+    </div>
+    <div class="pane active" id="team">
+      <form class="hire" id="hireForm">
+        <input id="hireInput" placeholder="Job description for a new bot">
+        <button>Hire</button>
+      </form>
+      <div class="staff">Core staff: manager · hr · recruiter</div>
+      <div id="teamList"></div>
+    </div>
+    <div class="pane" id="pending"><div id="pendingList"></div></div>
+    <div class="pane" id="leads">
+      <div class="hire"><input id="leadSearch" placeholder="Search leads"></div>
+      <div id="leadList"></div>
+    </div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const el = (tag, props = {}, ...kids) => {
+  const n = Object.assign(document.createElement(tag), props);
+  kids.flat().forEach((k) => n.append(k));
+  return n;
+};
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    headers: { "Content-Type": "application/json" },
+    ...opts,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  if (res.status === 401) { location.reload(); throw new Error("Signed out"); }
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+  return res.json();
+}
+
+const EXAMPLES = [
+  "Hire a bot that finds independent dental clinics in Austin and adds them as leads",
+  "Who is on the team right now?",
+  "Draft a friendly intro email for every new lead",
+];
+
+function addMsg(role, text) {
+  const log = $("log");
+  log.querySelector(".empty")?.remove();
+  const m = el("div", { className: `msg ${role}`, textContent: text });
+  log.append(m);
+  log.scrollTop = log.scrollHeight;
+  return m;
+}
+
+function showEmpty() {
+  $("log").append(el("div", { className: "empty" },
+    el("p", { textContent: "Talk to your Manager. It delegates to the team and hires new bots when needed." }),
+    EXAMPLES.map((t) => el("button", { className: "ghost", textContent: t, onclick: () => send(t) }))));
+}
+
+async function send(text) {
+  text = text.trim();
+  if (!text) return;
+  $("input").value = "";
+  $("sendBtn").disabled = true;
+  addMsg("user", text);
+  const wait = addMsg("assistant thinking", "Working on it…");
+  try {
+    const { reply } = await api("/api/chat", { method: "POST", body: { text } });
+    wait.remove();
+    addMsg("assistant", reply);
+  } catch (e) {
+    wait.remove();
+    addMsg("assistant", `Error: ${e.message}`);
+  } finally {
+    $("sendBtn").disabled = false;
+    refresh();
+  }
+}
+
+async function loadStatus() {
+  const s = await api("/api/status");
+  const pill = (label, on) => el("span", { className: `pill ${on ? "on" : "off"}`, textContent: label });
+  $("status").replaceChildren(
+    el("span", { className: "pill", textContent: s.default_model }),
+    ...["anthropic", "openai", "xai", "gemini"].map((p) => pill(p, s.providers.includes(p))),
+    pill("email", s.email), pill("sms", s.sms), pill("web search", s.web_search),
+    el("span", { className: "pill", textContent: s.require_approval ? "approval required" : "auto-send" }),
+  );
+}
+
+async function loadTeam() {
+  const bots = await api("/api/team");
+  $("teamList").replaceChildren(...(bots.length ? bots.map((b) => el("div", { className: "card" },
+    el("h3", {}, b.name, el("button", { className: "danger", textContent: "Fire", onclick: async () => {
+      if (!confirm(`Retire ${b.name}?`)) return;
+      addMsg("assistant", (await api(`/api/team/${encodeURIComponent(b.name)}/fire`, { method: "POST" })).result);
+      refresh();
+    } })),
+    el("div", { className: "meta", textContent: `${b.role} · ${b.model}` }),
+    el("div", { className: "tools" }, b.tools.map((t) => el("span", { textContent: t }))),
+  )) : [el("div", { className: "meta", textContent: "No worker bots yet. Hire one above or ask the Manager." })]));
+}
+
+async function loadPending() {
+  const items = await api("/api/pending");
+  $("pendingCount").hidden = !items.length;
+  $("pendingCount").textContent = items.length;
+  const act = (id, verb) => async () => {
+    addMsg("assistant", (await api(`/api/pending/${id}/${verb}`, { method: "POST" })).result);
+    refresh();
+  };
+  $("pendingList").replaceChildren(...(items.length ? items.map((a) => el("div", { className: "card" },
+    el("h3", { textContent: `#${a.id} ${a.kind} to ${a.payload.to}` }),
+    el("div", { className: "meta", textContent: `requested by ${a.requested_by}${a.payload.subject ? " · " + a.payload.subject : ""}` }),
+    el("div", { className: "body", textContent: a.payload.body }),
+    el("div", { className: "row" },
+      el("button", { textContent: "Approve & send", onclick: act(a.id, "approve") }),
+      el("button", { className: "ghost", textContent: "Reject", onclick: act(a.id, "reject") })),
+  )) : [el("div", { className: "meta", textContent: "Nothing waiting for approval." })]));
+}
+
+async function loadLeads() {
+  const leads = await api(`/api/leads?q=${encodeURIComponent($("leadSearch").value)}`);
+  $("leadList").replaceChildren(leads.length ? el("table", {},
+    el("tr", {}, ["Name", "Company", "Contact", "Status"].map((h) => el("th", { textContent: h }))),
+    leads.map((l) => el("tr", {},
+      el("td", { textContent: l.name }), el("td", { textContent: l.company }),
+      el("td", { textContent: [l.email, l.phone].filter(Boolean).join("\n") }),
+      el("td", { textContent: l.status, title: l.notes })))) :
+    el("div", { className: "meta", textContent: "No leads yet." }));
+}
+
+function refresh() {
+  loadStatus().catch(console.error);
+  loadTeam().catch(console.error);
+  loadPending().catch(console.error);
+  loadLeads().catch(console.error);
+}
+
+document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll(".tabs button, .pane").forEach((n) => n.classList.remove("active"));
+  b.classList.add("active");
+  $(b.dataset.tab).classList.add("active");
+}));
+$("send").addEventListener("submit", (e) => { e.preventDefault(); send($("input").value); });
+$("input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send($("input").value); }
+});
+$("hireForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const job = $("hireInput").value.trim();
+  if (!job) return;
+  $("hireInput").value = "";
+  addMsg("user", `/hire ${job}`);
+  const wait = addMsg("assistant thinking", "Recruiter and HR are on it…");
+  try {
+    const { result } = await api("/api/team/hire", { method: "POST", body: { job_description: job } });
+    wait.remove(); addMsg("assistant", result);
+  } catch (err) { wait.remove(); addMsg("assistant", `Error: ${err.message}`); }
+  refresh();
+});
+let searchTimer;
+$("leadSearch").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadLeads, 250); });
+
+api("/api/history").then((h) => (h.length ? h.forEach((m) => addMsg(m.role, m.text)) : showEmpty())).catch(showEmpty);
+refresh();
+setInterval(() => { loadPending().catch(() => {}); loadLeads().catch(() => {}); }, 15000);
+</script>
+</body>
+</html>

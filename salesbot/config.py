@@ -53,6 +53,11 @@ class Settings:
 
     brave_api_key: str = ""
 
+    # Web app: a shared access token is required unless bound to localhost.
+    web_token: str = ""
+    web_host: str = "127.0.0.1"
+    web_port: int = 8000
+
     data_dir: str = "data"
     # When true, emails and SMS are queued for human approval instead of sent.
     require_approval: bool = True
@@ -81,6 +86,9 @@ class Settings:
             twilio_auth_token=_env("TWILIO_AUTH_TOKEN"),
             twilio_from_number=_env("TWILIO_FROM_NUMBER"),
             brave_api_key=_env("BRAVE_API_KEY"),
+            web_token=_env("SALESBOT_WEB_TOKEN"),
+            web_host=_env("SALESBOT_WEB_HOST", cls.web_host),
+            web_port=int(_env("PORT", _env("SALESBOT_WEB_PORT", "8000"))),
             data_dir=_env("SALESBOT_DATA_DIR", cls.data_dir),
             require_approval=_env_bool("SALESBOT_REQUIRE_APPROVAL", True),
             max_agent_steps=int(_env("SALESBOT_MAX_AGENT_STEPS", "12")),

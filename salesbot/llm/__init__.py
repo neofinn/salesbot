@@ -57,6 +57,12 @@ class LLMGateway:
                 found.add(name)
         return sorted(found)
 
+    def configured(self) -> list[str]:
+        """Providers with an API key in the settings, plus custom registered ones."""
+        found = {name for name in self._providers if name not in PROVIDERS}
+        found.update(name for name in PROVIDERS if getattr(self.settings, f"{name}_api_key", ""))
+        return sorted(found)
+
     def _build(self, name: str) -> Provider:
         s = self.settings
         if name == "anthropic":
