@@ -32,9 +32,9 @@ async def run_command(team: Team, chat_id: str, text: str) -> str | None:
     if cmd == "/team":
         bots = await team.roster()
         if not bots:
-            return "Staff: manager, hr, recruiter. No worker bots yet - try /hire <job>."
+            return "Staff: manager, hr, recruiter, cto. No worker bots yet - try /hire <job>."
         lines = [f"- {b.name}: {b.role} ({b.model}; tools: {', '.join(b.tools) or 'none'})" for b in bots]
-        return "Staff: manager, hr, recruiter.\nBots:\n" + "\n".join(lines)
+        return "Staff: manager, hr, recruiter, cto.\nBots:\n" + "\n".join(lines)
     if cmd == "/hire":
         return await team.hire(arg) if arg else "Usage: /hire <job description>"
     if cmd == "/fire":
@@ -48,5 +48,5 @@ async def run_command(team: Team, chat_id: str, text: str) -> str | None:
         return await (team.approve(action_id) if cmd == "/approve" else team.reject(action_id))
     if cmd == "/reset":
         await team.store.clear_chat(chat_id)
-        return "Manager memory for this chat cleared."
+        return "Manager memory for this chat cleared (recent messages and the long-term summary)."
     return f"Unknown command {cmd}. Try /help."

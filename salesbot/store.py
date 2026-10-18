@@ -59,6 +59,12 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS chat_memory (
+    chat_id TEXT PRIMARY KEY,
+    summary TEXT NOT NULL,
+    upto_id INTEGER NOT NULL,
+    updated_at REAL NOT NULL
+);
 """
 
 LEAD_FIELDS = ("name", "company", "email", "phone", "status", "notes")
@@ -117,6 +123,11 @@ class Store:
         async with self.db.execute("SELECT * FROM agents WHERE active = 1 ORDER BY created_at") as cur:
             rows = await cur.fetchall()
         return [_row_to_spec(r) for r in rows]
+
+    async def set_agent_model(self, name: str, model: str) -> bool:
+        cur = await self.db.execute("UPDATE agents SET model = ? WHERE name = ? AND active = 1", (model, name))
+        await self.db.commit()
+        return cur.rowcount > 0
 
     async def retire_agent(self, name: str) -> bool:
         cur = await self.db.execute("UPDATE agents SET active = 0 WHERE name = ? AND active = 1", (name,))
@@ -185,6 +196,26 @@ class Store:
 
     async def clear_chat(self, chat_id: str) -> None:
         await self.db.execute("DELETE FROM chat_history WHERE chat_id = ?", (chat_id,))
+        await self.db.execute("DELETE FROM chat_memory WHERE chat_id = ?", (chat_id,))
+        await self.db.commit()
+
+    async def chat_rows_after(self, chat_id: str, after_id: int) -> list[tuple[int, str, str]]:
+        async with self.db.execute(
+            "SELECT id, role, text FROM chat_history WHERE chat_id = ? AND id > ? ORDER BY id", (chat_id, after_id)
+        ) as cur:
+            return [(r["id"], r["role"], r["text"]) for r in await cur.fetchall()]
+
+    async def get_memory(self, chat_id: str) -> tuple[str, int]:
+        """The rolling summary of a chat's older turns, and the last message id it covers."""
+        async with self.db.execute("SELECT summary, upto_id FROM chat_memory WHERE chat_id = ?", (chat_id,)) as cur:
+            row = await cur.fetchone()
+        return (row["summary"], row["upto_id"]) if row else ("", 0)
+
+    async def set_memory(self, chat_id: str, summary: str, upto_id: int) -> None:
+        await self.db.execute(
+            "INSERT OR REPLACE INTO chat_memory (chat_id, summary, upto_id, updated_at) VALUES (?, ?, ?, ?)",
+            (chat_id, summary, upto_id, time.time()),
+        )
         await self.db.commit()
 
     # --- settings saved from the web app ------------------------------------

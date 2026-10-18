@@ -131,4 +131,10 @@ class LLMGateway:
         self, model_ref: str, system: str, messages: list[Message], tools: list[ToolSpec]
     ) -> LLMResponse:
         provider_name, model = self.resolve(model_ref)
+        if provider_name != "router":
+            # Buffer memory: a conversation moved to a smaller model is condensed to fit it.
+            from .memory import OUTPUT_RESERVE, context_window, fit
+
+            budget = context_window(model_ref if model else provider_name, self.settings) - OUTPUT_RESERVE
+            messages = fit(messages, budget, system, tools)
         return await self.provider(provider_name).complete(model, system, messages, tools)

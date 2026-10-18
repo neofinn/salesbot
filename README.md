@@ -16,7 +16,8 @@ You talk to the team from a **web app**, over **Telegram**, or in a terminal cha
 ```
  You (Telegram) ──► Manager ──► delegate_task ──► worker bots ──► tools (web, email, SMS, CRM)
                       │
-                      └──► hire_bot ──► Recruiter (designs bot) ──► HR (approve / reject) ──► roster
+                      ├──► hire_bot ──► Recruiter (designs bot) ──► CTO (model & tools) ──► HR (approve / reject) ──► roster
+                      └──► ask_cto ──► CTO (router status, free API hunt, model changes)
 ```
 
 ## Deploy (get your own link)
@@ -45,7 +46,7 @@ Open **Connections** in the web app header (it opens by itself until an AI is co
 
 Keys saved here are stored in the app's database on your server's disk and override environment
 variables; secrets are never sent back to the browser (only a masked hint). Leave
-**Model for Manager, HR and Recruiter** empty to use whichever AI is connected.
+**Model for Manager, HR, Recruiter and CTO** empty to use whichever AI is connected.
 
 ## Quick start (local)
 
@@ -93,7 +94,7 @@ Commands (web chat, Telegram and terminal chat):
 | Command | What it does |
 |---|---|
 | `/team` | List the bots on the team |
-| `/hire <job>` | Hire a bot for a job description (Recruiter + HR) |
+| `/hire <job>` | Hire a bot for a job description (Recruiter + CTO + HR) |
 | `/fire <name>` | Retire a bot |
 | `/pending` | Emails and texts waiting for your approval |
 | `/approve <id>` / `/reject <id>` | Send or discard a queued email/text |
@@ -121,6 +122,28 @@ The **free API hunter** builds that chain for you. Run it with `python -m salesb
    saves the chain to `data/router.json`.
 
 Set `ROUTER_MODELS` to pin your own chain instead, e.g. `gemini:gemini-2.5-flash, groq, claude_code`.
+
+## CTO and buffer memory
+
+**The CTO** is core staff alongside the Manager, HR and the Recruiter, and owns the technology.
+
+- **Tools:** `system_status` shows connected providers, the router chain with cooldowns, the last
+  hunt and each bot's model. `run_api_hunt`, `test_model` and `set_bot_model` act on them.
+- **Hiring:** every hire gets a CTO review between the Recruiter and HR. The CTO approves the
+  candidate's model and tools, moves it to a better-suited model, or rejects a job the connected
+  models can't do.
+- **Advice:** the Manager asks the CTO technical questions with `ask_cto`.
+
+**Buffer memory** keeps context when the API router switches models.
+
+- **Fitting the conversation:** before every call, the conversation is fitted to the target
+  model's context window (measured by the hunter, or a per-provider default). If it doesn't fit,
+  the opening request and the newest messages stay verbatim and the middle is folded into a
+  summary. A tool call is never separated from its result.
+- **Long-term memory per chat:** turns older than the last 20 messages are folded, in batches,
+  into a rolling summary by a memory keeper (`chat_memory` table). The summary goes into the
+  Manager's prompt, so the thread survives provider switches, restarts and long chats. `/reset`
+  clears it.
 
 ## OpenClaw browser agent (optional)
 
@@ -198,7 +221,7 @@ Code's own tools disabled; MyOps's tools are described in the prompt and called 
 schema. It's slower than the API (a few seconds per turn), so for an always-on deployment prefer an
 API key. The Docker image doesn't include the CLI.
 
-The Manager, HR and Recruiter use `SALESBOT_DEFAULT_MODEL`. The Recruiter picks a model for each new
+The Manager, HR, Recruiter and CTO use `SALESBOT_DEFAULT_MODEL`. The Recruiter picks a model for each new
 bot from the providers you have keys for. Claude requests use adaptive thinking and server-side
 refusal fallbacks.
 
@@ -207,7 +230,7 @@ refusal fallbacks.
 ```
 salesbot/
   agents/agent.py      one bot: system prompt + model + tools, runs the tool-calling loop
-  agents/team.py       Manager, HR, Recruiter; hiring, delegation, approvals
+  agents/team.py       Manager, HR, Recruiter, CTO; hiring, delegation, approvals, chat memory
   llm/                 provider-neutral gateway + Claude API / Claude Code CLI / OpenAI / xAI / Gemini
   tools/               web search & fetch, OpenClaw browsing, stock research, email, SMS, CRM
   research/            stock research engine (prices, SEC financials, technicals, breakout scan)

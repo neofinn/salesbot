@@ -16,6 +16,12 @@ https://claude.ai/artifact/6YkVnFET8ApmLsBJfur2pV (a blank copy: https://claude.
 - "Start fresh" (Team pane) erases the open profile's bots, tasks, contacts, drafts, chat and
   profile ("Delete profile" on any profile but the first also removes it from the menu). Rows
   already synced to Airtable stay in Airtable.
+- Core staff: Manager, Recruiter, HR and CTO. The CTO checks every hire's tools against what is
+  connected right now (Clay, Airtable, research reports), drops tools that would fail or rejects
+  the hire, and answers the Manager's technical questions (`ask_cto` action).
+- Long-term memory: chat turns older than the 12 the Manager sees are folded, in batches, into a
+  summary at `config/memory`. The quick Claude tier writes it, and it falls back to an extract if
+  that call fails. The summary goes into the Manager's prompt.
 - Every delegation is logged on the Tasks board (`tasks`) with its status and report.
 - Reports tab (`reports` per profile): research written by the MyOps research engine
   (`python -m salesbot.research scan --report-doc report.json`, then stored in the profile's

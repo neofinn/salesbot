@@ -232,7 +232,7 @@ textarea, input, select {
 
 <main>
   <section class="pane" id="pane-team" aria-label="Team">
-    <div class="head"><h2>Team</h2><span class="eyebrow" id="headcount">3 staff</span></div>
+    <div class="head"><h2>Team</h2><span class="eyebrow" id="headcount">4 staff</span></div>
     <div class="scroll">
       <div class="eyebrow section-label" style="margin-top:0">Core staff</div>
       <div class="badges" id="staff"></div>
@@ -302,6 +302,7 @@ const STAFF = [
   { name: "manager", title: "Manager", mark: "M", role: "Takes your requests, plans the work, delegates and reports back." },
   { name: "recruiter", title: "Recruiter", mark: "R", role: "Designs a new bot when no one on the team fits a job." },
   { name: "hr", title: "HR", mark: "H", role: "Reviews every candidate: right role, safe instructions, least access." },
+  { name: "cto", title: "CTO", mark: "C", role: "Owns the tech: Claude models, connections and data; checks every hire's tools can actually work." },
 ];
 const TOOLS = {
   crm_read: "read the contact book (leads, clients and other contacts)",
@@ -327,6 +328,7 @@ const S = {
   bots: [], leads: [], outbox: [], chat: [], tasks: [], reports: [],
   profile: null, loaded: false, editingProfile: false, // who the open profile works for
   root: null, space: "main", spaces: [], unsubs: [], // all profiles, and the one open now
+  memory: null, // the open profile's long-term chat memory (config/memory)
 
   sample: null, store: null, readOnly: false, busy: false, ctl: null, tier: "default", lastError: "", mcp: null, clay: "checking", at: null, atState: "checking", atNote: "",
   live: null, // the in-progress manager turn: {steps: [{text, state}]}
@@ -415,7 +417,7 @@ function openSpace(id) {
   S.unsubs = [];
   S.space = id;
   try { localStorage.setItem("myops.space", id); } catch { /* per-viewer convenience only */ }
-  Object.assign(S, { bots: [], tasks: [], leads: [], outbox: [], chat: [], reports: [], profile: null, at: null, atNote: "", loaded: false, editingProfile: false });
+  Object.assign(S, { bots: [], tasks: [], leads: [], outbox: [], chat: [], reports: [], profile: null, memory: null, at: null, atNote: "", loaded: false, editingProfile: false });
   S.store = scoped(S.root, id);
   const onErr = (e) => { if (e?.code !== "unavailable") setStatus("Live updates stopped. Reload the page.", true); };
   const sub = (c, fn) => S.unsubs.push(S.store.sub(c, fn, onErr));
@@ -426,6 +428,7 @@ function openSpace(id) {
   sub("config", (rows) => {
     const cfg = rows.find((r) => r.id === "airtable");
     S.at = cfg && cfg.baseId && cfg.tableId && cfg.fields?.sid ? cfg : null;
+    S.memory = rows.find((r) => r.id === "memory") || null;
     const prof = rows.find((r) => r.id === "profile");
     S.profile = prof && prof.company ? prof : null;
     S.loaded = true;
@@ -470,7 +473,7 @@ function renderTeam() {
     el("div", { className: "role", textContent: p.role }),
   )));
   const bots = [...S.bots].sort((a, b) => (a.hiredAt || 0) - (b.hiredAt || 0));
-  $("headcount").textContent = `3 staff · ${bots.length} bot${bots.length === 1 ? "" : "s"}`;
+  $("headcount").textContent = `${STAFF.length} staff · ${bots.length} bot${bots.length === 1 ? "" : "s"}`;
   $("bots").replaceChildren(...(bots.length ? bots.map(botBadge)
     : [el("div", { className: "muted", style: "font-size:13px", textContent: "None yet. Ask the Manager for help with a job and it will hire the right bot." })]));
 }
@@ -607,7 +610,7 @@ function renderOperation() {
 async function resetOperation() {
   const id = S.space;
   for (const c of ["bots", "tasks", "leads", "outbox", "chat", "reports", "diagnostics"]) await S.store.clear(c);
-  for (const doc of ["profile", "airtable"]) await S.store.del("config", doc).catch(() => {});
+  for (const doc of ["profile", "airtable", "memory"]) await S.store.del("config", doc).catch(() => {});
   await S.root.del("spaces", id).catch(() => {});
   showPane("pane-chat");
   openSpace(MAIN);
@@ -802,20 +805,22 @@ function managerPrompt(history, message, results, round) {
       : "- Worker bots cannot browse the web or send anything. They work from their own knowledge, the owner's instructions and the contact book (CRM). Finding new leads needs the Clay connector, which is not connected: tell the owner to connect Clay in claude.ai Settings > Connectors, then hire a bot with find_leads.",
     "- Emails and texts that bots draft go to the owner's out-tray and are only sent if the owner approves them.",
     `- Bot tools: ${Object.entries(TOOLS).map(([k, v]) => `${k} (${v})`).join("; ")}.`,
-    "- Hiring: the Recruiter designs the bot from your job description and HR approves or rejects it. Name the bot you want in snake_case.",
+    "- Hiring: the Recruiter designs the bot from your job description, the CTO checks its tools can work with what is connected, and HR approves or rejects it. Name the bot you want in snake_case.",
+    "- The CTO answers technical questions (which connections and data are live, why a bot's tool failed, what a job needs set up): use an ask_cto action.",
     "",
     `Team roster (worker bots): ${JSON.stringify(rosterDigest())}`,
     S.reports.length ? `Research reports: ${S.reports.length}; the latest is "${reportDigest().title}" from ${reportDigest().generated_at} with ${reportDigest().items.length} stocks (${reportDigest().items.map((x) => x.ticker).join(", ")}). Bots granted research_read see its real numbers. No one on the team can fetch new market data: for stocks or dates not in a report, say a new research scan is needed (the owner runs it from Claude Code or a scheduled job).` : "",
     S.tasks.length ? `Recent tasks: ${JSON.stringify([...S.tasks].sort((a, b) => (b.n || 0) - (a.n || 0)).slice(0, 8).map((t) => ({ n: t.n, bot: t.bot, status: t.status, brief: short(t.brief, 140), report: short(t.report, 200) })))}` : "",
     `Contact book: ${S.leads.length} contacts${counts.length ? " (" + counts.map(([s, n]) => `${n} ${s}`).join(", ") + ")" : ""}. Out-tray: ${S.outbox.filter((d) => d.status === "pending").length} drafts awaiting approval.`,
     "",
+    S.memory?.summary ? "Long-term memory of this chat (older turns, summarized):\n" + S.memory.summary : "",
     history.length ? "Recent conversation:\n" + history.map((m) => `${m.role === "user" ? "Owner" : "Manager"}: ${m.text}`).join("\n") : "",
     "",
     `The owner's new message:\n${message}`,
     results.length ? "\nWhat happened with the actions you already took for this message:\n" + results.map((r, i) => `${i + 1}. ${r}`).join("\n") : "",
     "",
     "Reply with ONLY a JSON object:",
-    '{"reply": "your message to the owner", "actions": [ {"type": "hire", "name": "snake_case_name", "job": "job description"}, {"type": "delegate", "bot": "bot_name", "task": "complete, self-contained brief including every detail the bot needs (names, emails, tone)"}, {"type": "fire", "bot": "bot_name"} ]}',
+    '{"reply": "your message to the owner", "actions": [ {"type": "hire", "name": "snake_case_name", "job": "job description"}, {"type": "delegate", "bot": "bot_name", "task": "complete, self-contained brief including every detail the bot needs (names, emails, tone)"}, {"type": "fire", "bot": "bot_name"}, {"type": "ask_cto", "question": "technical question"} ]}',
     "Actions run in order, so you may hire a bot and delegate to it in the same list. Delegate to a bot only if it is on the roster or hired earlier in the list.",
     "While actions remain, keep \"reply\" to one short line. When the work is finished, return \"actions\": [] and make \"reply\" your final report: what was done and by whom, the results, and draft numbers waiting in the out-tray. Plain text, no markdown headings.",
     round >= MAX_ROUNDS ? "This is your last round: \"actions\" must be []." : "",
@@ -846,6 +851,7 @@ async function runAction(a, signal) {
   const type = String(a?.type || "");
   if (type === "hire") return hire(String(a.job || ""), String(a.name || ""), signal);
   if (type === "delegate") return delegate(String(a.bot || ""), String(a.task || ""), signal);
+  if (type === "ask_cto") return askCto(String(a.question || ""), signal);
   if (type === "fire") {
     const bot = S.bots.find((b) => b.name === a.bot);
     if (!bot) return `fire ${a.bot}: no such bot.`;
@@ -855,6 +861,54 @@ async function runAction(a, signal) {
     return `fire ${bot.name}: retired.`;
   }
   return `Unknown action ${JSON.stringify(a).slice(0, 120)}: skipped.`;
+}
+
+// CTO: the live technical picture, technical questions, and a tools check on every hire.
+function techStatus() {
+  const latest = reportsByDate()[0];
+  const usable = {
+    find_leads: S.clay === "available", web_research: S.clay === "available",
+    airtable: S.atState === "available" && !!S.at, research_read: !!latest,
+    crm_read: true, crm_write: true, draft_email: true, draft_sms: true,
+  };
+  return {
+    claude: { model_tier: S.tier, last_error: S.lastError || null },
+    connections: { clay: S.clay, airtable: S.at ? `${S.atState} (${S.at.baseName || "table set up"})` : `${S.atState}, no table set up` },
+    research_reports: latest ? { count: S.reports.length, latest: latest.generated_at, stocks: (latest.items || []).length } : "none",
+    tools_that_work_now: Object.entries(usable).filter(([, ok]) => ok).map(([t]) => t),
+    tools_that_cannot_work_now: Object.entries(usable).filter(([, ok]) => !ok).map(([t]) => t),
+    bots: S.bots.map((b) => ({ name: b.name, tools: b.tools })),
+  };
+}
+const CTO_INTRO = "You are the CTO of MyOps, the owner's personal team of AI bot employees. You own the technology: the Claude models the team runs on, the connections (Clay for company/contact data and web research, Airtable for the contact table), the research data (reports from the MyOps research engine) and which bot tools can work right now.";
+async function askCto(question, signal) {
+  if (!question) return "ask_cto: no question given.";
+  const st = step("CTO is looking into it…");
+  try {
+    const out = await askJson([
+      CTO_INTRO,
+      `Live technical status (JSON): ${JSON.stringify(techStatus())}`,
+      `Question from the Manager: ${question}`,
+      "Answer from the status only; never invent status. If something must be set up, say exactly what the owner should do (for example: connect Clay in claude.ai Settings > Connectors, or open Contacts and create the Airtable table).",
+      'Reply with ONLY a JSON object: {"answer": "short, concrete answer"}',
+    ].join("\n"), signal);
+    st.done("CTO answered");
+    return `CTO: ${String(out?.answer || "no answer").slice(0, 1500)}`;
+  } catch (e) { st.fail("CTO couldn't answer"); if (e?.code === "cancelled") throw e; return `ask_cto failed (${errText(e)}).`; }
+}
+async function ctoReview(job, spec, signal) {
+  const status = techStatus();
+  const out = await askJson([
+    CTO_INTRO,
+    "Review this candidate bot's technical setup before HR sees it.",
+    `Job description: ${job}`,
+    `Candidate: ${JSON.stringify(spec)}`,
+    `Live technical status (JSON): ${JSON.stringify(status)}`,
+    "Approve if the job can be done with tools that work now. Drop tools the job does not need or that cannot work now (the bot would only fail with them), and reject if the job is impossible until something is set up, saying what.",
+    'Reply with ONLY a JSON object: {"approved": true or false, "drop_tools": ["tool", ...], "reason": "one or two sentences"}',
+  ].join("\n"), signal);
+  const drop = Array.isArray(out?.drop_tools) ? out.drop_tools.map(String) : [];
+  return { approved: out?.approved === true, drop, reason: String(out?.reason || "") };
 }
 
 // Recruiter + HR
@@ -898,6 +952,15 @@ async function hire(job, wanted, signal) {
   if (checked.problems.length) { st.fail("Recruiter's design was invalid"); return `hire: rejected by validation (${checked.problems.join("; ")}).`; }
   const spec = checked.spec;
   st.done(`Recruiter designed ${spec.name} (${spec.tools.join(", ") || "no tools"})`);
+
+  st = step(`CTO is checking ${spec.name}'s tools…`);
+  try {
+    const tech = await ctoReview(job, spec, signal);
+    if (!tech.approved) { st.fail(`CTO rejected ${spec.name}: ${tech.reason || "no reason given"}`); return `hire ${spec.name}: the CTO rejected it. Reason: ${tech.reason || "none given"}.`; }
+    const dropped = spec.tools.filter((t) => tech.drop.includes(t));
+    spec.tools = spec.tools.filter((t) => !tech.drop.includes(t));
+    st.done(`CTO approved ${spec.name}${dropped.length ? ` (removed ${dropped.join(", ")})` : ""}: ${tech.reason}`.trim());
+  } catch (e) { st.fail("CTO couldn't finish the review"); if (e?.code === "cancelled") throw e; return `hire ${spec.name}: CTO review failed (${errText(e)}).`; }
 
   st = step(`HR is reviewing ${spec.name}…`);
   let verdict;
@@ -1334,6 +1397,32 @@ async function send(text) {
   await S.store.set("chat", `m${doc.at}m`, doc).catch(showStoreError);
   S.chat = S.chat.filter((m) => m.id !== "pending-mgr");
   renderAll();
+  updateMemory().catch(() => {});
+}
+
+// Long-term memory: chat turns older than the 12 the Manager sees are folded (in batches) into a
+// summary at config/memory, so the thread survives long chats and a switch between Claude tiers.
+const RECENT_TURNS = 12, MEMORY_BATCH = 6;
+async function updateMemory() {
+  if (!S.sample || S.readOnly) return;
+  const msgs = [...S.chat].filter((m) => !String(m.id).startsWith("pending")).sort((a, b) => (a.at || 0) - (b.at || 0));
+  const upto = S.memory?.upto || 0;
+  const older = msgs.slice(0, -RECENT_TURNS).filter((m) => (m.at || 0) > upto);
+  if (older.length < MEMORY_BATCH) return;
+  const transcript = older.map((m) => `${m.role === "user" ? "Owner" : "Manager"}: ${String(m.text).slice(0, 1200)}`).join("\n");
+  let summary;
+  try {
+    const { text } = await S.sample([
+      "You keep the long-term memory of an owner's chat with the Manager of their AI team. Merge the new turns into the memory.",
+      "Keep goals, preferences and standing instructions, decisions, important names and numbers, work done by which bot, and open tasks. Drop small talk and anything superseded. Plain bullet points, at most 3000 characters. Reply with the memory only.",
+      `Current memory:\n${S.memory?.summary || "(empty)"}`, `New turns:\n${transcript}`,
+    ].join("\n\n"), { cache: false, modelTier: "quick" });
+    summary = String(text || "").trim();
+  } catch { summary = ""; }
+  if (!summary) summary = `${S.memory?.summary || ""}\n${transcript}`.trim();
+  const doc = { summary: summary.slice(-4000), upto: older[older.length - 1].at, updatedAt: Date.now() };
+  S.memory = { id: "memory", ...doc };
+  await S.store.set("config", "memory", doc);
 }
 
 // ---------- Wiring ------------------------------------------------------------------
