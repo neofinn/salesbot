@@ -30,7 +30,11 @@ FIELDS: tuple[Field, ...] = (
     Field("xai_api_key", "xAI (Grok) API key", "ai", "secret", "xai-..."),
     Field("gemini_api_key", "Google Gemini API key", "ai", "secret", "AIza..."),
     Field("openrouter_api_key", "OpenRouter API key", "ai", "secret", "sk-or-..."),
-    Field("default_model", "Model for Manager, HR and Recruiter", "ai", "text", "auto"),
+    Field("groq_api_key", "Groq API key (free tier)", "ai", "secret", "gsk_..."),
+    Field("ollama_url", "Ollama server URL (local models, e.g. Qwen)", "ai", "text", "http://127.0.0.1:11434"),
+    Field("default_model", "Model for Manager, HR and Recruiter", "ai", "text", "auto, or router"),
+    Field("router_models", "API router chain (comma-separated; empty = free API hunter's pick)", "router", "text", "gemini:gemini-2.5-flash, claude_code"),
+    Field("router_prefer", "API router order: free first, or quality first", "router", "text", "free"),
     Field("smtp_host", "SMTP host", "email", "text", "smtp.gmail.com"),
     Field("smtp_port", "SMTP port", "email", "int", "587"),
     Field("smtp_user", "SMTP username", "email", "text"),
@@ -53,7 +57,10 @@ PROVIDER_LABELS = {
     "xai": "xAI Grok",
     "gemini": "Google Gemini",
     "openrouter": "OpenRouter (Claude, GPT, Grok, Gemini & more with one sign-in)",
+    "groq": "Groq (fast, free tier)",
+    "ollama": "Ollama on this server (local models such as Qwen)",
     "claude_code": "Claude Code CLI on this server (signed-in account, no key)",
+    "router": "API router (tries free models first, falls back automatically)",
 }
 
 
@@ -117,5 +124,7 @@ def validate(values: dict[str, Any]) -> dict[str, str | None]:
             parsed = parse(field, raw)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"{field.label}: invalid value") from exc
+        if key == "router_prefer" and str(parsed).lower() not in ("free", "quality"):
+            raise ValueError("API router order must be free or quality")
         clean[key] = str(parsed).lower() if field.kind == "bool" else str(parsed)
     return clean

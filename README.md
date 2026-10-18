@@ -5,7 +5,7 @@ operations: research, planning, writing and email drafts, follow-ups, lead gener
 and admin. You tell the **Manager** what you want;
 it delegates to bots on the team, and when nobody fits the job, the **Recruiter** designs a new
 bot and **HR** reviews it before it's hired. Each bot can run on a different LLM (Claude, GPT,
-Grok or Gemini) and is given only the tools its job needs: web search, OpenClaw browsing, email, SMS
+Grok, Gemini, Groq, local Ollama models such as Qwen, or the API router) and is given only the tools its job needs: web search, OpenClaw browsing, email, SMS
 and a built-in contact book (CRM).
 
 The code lives in the `salesbot` Python package (the project's original name), so commands still
@@ -98,6 +98,29 @@ Commands (web chat, Telegram and terminal chat):
 | `/pending` | Emails and texts waiting for your approval |
 | `/approve <id>` / `/reject <id>` | Send or discard a queued email/text |
 | `/reset` | Clear the Manager's memory of this chat |
+
+## API router and free API hunter
+
+Set the staff model (or any bot's model) to `router` and MyOps sends each request through a
+chain of models. When one is rate-limited, out of quota or failing, it is put on cooldown and
+the next one answers. Free tiers can be stacked this way, with your paid accounts as the last
+resort.
+
+The **free API hunter** builds that chain for you. Run it with `python -m salesbot hunt` or
+"Hunt free APIs" in Connections; it refreshes daily while the router is in use. It:
+
+1. Lists free models from several sources:
+   - OpenRouter's free models with tool support (a free OpenRouter key is needed to use them).
+   - Gemini's free-tier Flash models.
+   - Groq's free tier.
+   - A local Ollama server (e.g. Qwen).
+   - Your signed-in Claude Code CLI and any paid API keys.
+2. Sends each one a tiny request that has to come back as a tool call, so it only keeps models
+   that work with your keys and can drive the agents.
+3. Orders them free first (`ROUTER_PREFER=free`) or your own accounts first (`quality`), and
+   saves the chain to `data/router.json`.
+
+Set `ROUTER_MODELS` to pin your own chain instead, e.g. `gemini:gemini-2.5-flash, groq, claude_code`.
 
 ## OpenClaw browser agent (optional)
 

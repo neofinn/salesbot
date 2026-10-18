@@ -132,6 +132,10 @@
     <div id="provList"></div>
     <h3>Or paste API keys</h3>
     <div id="fields-ai"></div>
+    <h3>API router &amp; free API hunter</h3>
+    <p style="color: var(--muted); font-size: 13px; margin: 0 0 8px">Set the staff model to <code>router</code> to try free models first and fall back automatically when one is rate-limited or down. The hunter finds free models (OpenRouter, Gemini, Groq, Ollama) plus your own accounts, checks each one can call tools, and builds the chain.</p>
+    <div id="fields-router"></div>
+    <div id="routerBox"></div>
     <h3>Email (SMTP)</h3>
     <div id="fields-email"></div>
     <h3>Text messages (Twilio)</h3>
@@ -330,7 +334,7 @@ function fieldRow(f) {
 }
 
 function renderConnections(data) {
-  for (const g of ["ai", "email", "sms", "search", "openclaw", "behaviour"]) {
+  for (const g of ["ai", "router", "email", "sms", "search", "openclaw", "behaviour"]) {
     $(`fields-${g}`).replaceChildren(...data.fields.filter((f) => f.group === g).map(fieldRow));
   }
   $("provList").replaceChildren(...data.providers.map((p) => {
@@ -349,9 +353,35 @@ function renderConnections(data) {
   }));
 }
 
+function renderRouter(r) {
+  const h = r.hunt || {};
+  const rows = (r.chain || []).map((c, i) => {
+    const info = (h.chain || []).find((x) => x.model === c.model) || {};
+    const bits = [info.source, info.latency_s != null ? `${info.latency_s}s` : "", c.ok || c.failed ? `${c.ok} ok / ${c.failed} failed` : "",
+      c.cooldown_seconds ? `cooling down ${c.cooldown_seconds}s` : ""].filter(Boolean).join(" · ");
+    return el("div", { className: "prov" }, el("span", { className: `dot ${c.cooldown_seconds ? "" : "on"}` }),
+      el("span", { className: "name", textContent: `${i + 1}. ${c.model}` }), el("span", { className: "result", textContent: bits, title: c.last_error || bits }));
+  });
+  const btn = el("button", { type: "button", className: "ghost", textContent: "Hunt free APIs now" });
+  btn.onclick = async () => {
+    btn.disabled = true; btn.textContent = "Hunting… (testing each model)";
+    try { renderRouter(await api("/api/router/hunt", { method: "POST" })); }
+    catch (e) { notice(e.message, "bad"); btn.disabled = false; btn.textContent = "Hunt free APIs now"; }
+  };
+  $("routerBox").replaceChildren(
+    el("div", { style: "font-size:13px;color:var(--muted);margin:6px 0" , textContent: r.explicit ? "Using your own chain (API router chain field)." :
+      h.hunted_at ? `Chain from the free API hunter, ${h.hunted_at} (${h.prefer} first). It refreshes daily while the router is in use.` : "No hunt yet." }),
+    ...(rows.length ? rows : [el("div", { style: "font-size:13px", textContent: "No working models yet: add a free key (Gemini, Groq or OpenRouter) or sign in to Claude Code, then hunt." })]),
+    ...((h.notes || []).map((n) => el("div", { style: "font-size:12px;color:var(--muted)", textContent: "• " + n }))),
+    ...((h.rejected || []).slice(0, 6).map((c) => el("div", { style: "font-size:12px;color:var(--muted)", textContent: `✗ ${c.model}: ${c.error || (c.ok ? "answered but did not call tools" : "failed")}` }))),
+    el("div", { style: "margin-top:6px" }, btn),
+  );
+}
+
 async function openConnections() {
   Object.keys(edits).forEach((k) => delete edits[k]);
   renderConnections(await api("/api/connections"));
+  api("/api/router").then(renderRouter).catch(() => {});
   if (!$("conn").open) $("conn").showModal();
 }
 
