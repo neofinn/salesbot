@@ -91,6 +91,9 @@ class Settings:
     web_host: str = "127.0.0.1"
     web_port: int = 8000
 
+    # The address phones use to reach this server (https://...), for app links and native apps.
+    public_url: str = ""
+
     data_dir: str = "data"
     # When true, emails and SMS are queued for human approval instead of sent.
     require_approval: bool = True
@@ -139,6 +142,7 @@ class Settings:
             web_token=_env("SALESBOT_WEB_TOKEN"),
             web_host=_env("SALESBOT_WEB_HOST", cls.web_host),
             web_port=int(_env("PORT", _env("SALESBOT_WEB_PORT", "8000"))),
+            public_url=_env("SALESBOT_PUBLIC_URL").rstrip("/"),
             data_dir=_env("SALESBOT_DATA_DIR", cls.data_dir),
             require_approval=_env_bool("SALESBOT_REQUIRE_APPROVAL", True),
             max_agent_steps=int(_env("SALESBOT_MAX_AGENT_STEPS", "12")),

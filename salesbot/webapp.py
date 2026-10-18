@@ -7,6 +7,8 @@ import base64
 import hashlib
 import hmac
 import logging
+import html
+import re
 import secrets
 import time
 from contextlib import asynccontextmanager
@@ -15,10 +17,14 @@ from typing import Any
 
 import httpx
 from fastapi import Body, Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
 from .agents import Team
+from .apps import AppSpec
+from .apps.icons import icon_png
+from .apps.native import project_zip
+from .apps.pwa import SERVICE_WORKER, head_tags, manifest
 from .commands import run_command
 from .connections import PROVIDER_LABELS
 from .llm import Message
@@ -38,7 +44,7 @@ background:#f6f7f9;color:#1b1f24}form{background:#fff;padding:28px;border-radius
 box-shadow:0 1px 3px #0002;display:grid;gap:12px;width:min(320px,90vw)}input,button{font:inherit;
 padding:10px;border-radius:8px;border:1px solid #ccd}button{background:#2457d6;color:#fff;border:0}
 p{color:#b42318;margin:0}</style></head><body><form method="post" action="/login">
-<h2 style="margin:0">MyOps</h2>{error}<input type="password" name="token" placeholder="Access token"
+<h2 style="margin:0">MyOps</h2>{error}<input type="hidden" name="next" value="{next}"><input type="password" name="token" placeholder="Access token"
 autofocus required><button>Sign in</button></form></body></html>"""
 
 
@@ -99,16 +105,56 @@ def create_app(team: Team) -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request) -> Any:
         if not authorized(request):
-            return HTMLResponse(LOGIN_PAGE.replace("{error}", ""))
+            return HTMLResponse(login_page())
         return HTMLResponse(resources.files("salesbot").joinpath("web/index.html").read_text())
 
+    def login_page(error: str = "", next_path: str = "/") -> str:
+        return LOGIN_PAGE.replace("{error}", error).replace("{next}", next_path)
+
     @app.post("/login")
-    async def login(token_in: str = Form(alias="token")) -> Any:
+    async def login(token_in: str = Form(alias="token"), next_path: str = Form("/", alias="next")) -> Any:
+        # Only redirect within this site.
+        next_path = next_path if re.fullmatch(r"/[A-Za-z0-9/_-]*", next_path or "") else "/"
         if not token or not hmac.compare_digest(token_in.encode(), token.encode()):
-            return HTMLResponse(LOGIN_PAGE.replace("{error}", "<p>Wrong token.</p>"), status_code=401)
-        resp = RedirectResponse("/", status_code=303)
+            return HTMLResponse(login_page("<p>Wrong token.</p>", next_path), status_code=401)
+        resp = RedirectResponse(next_path, status_code=303)
         resp.set_cookie(COOKIE, token, httponly=True, samesite="lax", max_age=60 * 60 * 24 * 30)
         return resp
+
+    # --- mobile apps: instant install (web app) and native projects ------------
+
+    async def app_spec(slug: str) -> AppSpec:
+        data = await team.store.get_app(slug)
+        if data is None:
+            raise HTTPException(status_code=404, detail="No such app")
+        return AppSpec.from_dict(data)
+
+    @app.get("/sw.js")
+    async def service_worker() -> Response:
+        return Response(SERVICE_WORKER, media_type="application/javascript", headers={"Service-Worker-Allowed": "/"})
+
+    @app.get("/app/{slug}/manifest.webmanifest")
+    async def app_manifest(slug: str) -> JSONResponse:
+        return JSONResponse(manifest(await app_spec(slug)), media_type="application/manifest+json")
+
+    @app.get("/app/{slug}/icon-{size}.png")
+    async def app_icon(slug: str, size: int) -> Response:
+        if size not in (180, 192, 512):
+            raise HTTPException(status_code=404)
+        spec = await app_spec(slug)
+        return Response(icon_png(size, spec.color, spec.letter), media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=3600"})
+
+    @app.get("/app/{slug}", response_class=HTMLResponse)
+    async def app_page(slug: str, request: Request) -> Any:
+        """The team's web app, branded and installable as this business's app."""
+        spec = await app_spec(slug)
+        tags = head_tags(spec)
+        if not authorized(request):
+            return HTMLResponse(login_page(next_path=f"/app/{slug}").replace("<title>MyOps</title>", tags))
+        page = resources.files("salesbot").joinpath("web/index.html").read_text()
+        page = re.sub(r"<title>.*?</title>", "", page, count=1).replace("</head>", tags + "</head>", 1)
+        return HTMLResponse(page.replace("<h1>MyOps</h1>", f"<h1>{html.escape(spec.name)}</h1>", 1))
 
     @app.post("/logout")
     async def logout() -> Any:
@@ -221,6 +267,23 @@ def create_app(team: Team) -> FastAPI:
         return {"ok": True, "reply": resp.text[:200]}
 
     # --- API router and free API hunter ---------------------------------------
+
+    @app.get("/api/apps", dependencies=api)
+    async def list_apps(request: Request) -> list[dict[str, Any]]:
+        return [team.app_links(AppSpec.from_dict(a), base_url(request)) for a in await team.store.list_apps()]
+
+    @app.get("/api/apps/{slug}/native.zip", dependencies=api)
+    async def app_native(slug: str, request: Request) -> Response:
+        spec = await app_spec(slug)
+        try:
+            data = project_zip(spec, spec.server_url or base_url(request))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return Response(data, media_type="application/zip",
+                        headers={"Content-Disposition": f'attachment; filename="{slug}-native.zip"'})
+
+    def base_url(request: Request) -> str:
+        return team.settings.public_url or str(request.base_url).rstrip("/")
 
     @app.get("/api/router", dependencies=api)
     async def router_status() -> dict[str, Any]:

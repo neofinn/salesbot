@@ -32,9 +32,9 @@ async def run_command(team: Team, chat_id: str, text: str) -> str | None:
     if cmd == "/team":
         bots = await team.roster()
         if not bots:
-            return "Staff: manager, hr, recruiter, cto. No worker bots yet - try /hire <job>."
+            return "Staff: manager, hr, recruiter, cto, android_dev, ios_dev. No worker bots yet - try /hire <job>."
         lines = [f"- {b.name}: {b.role} ({b.model}; tools: {', '.join(b.tools) or 'none'})" for b in bots]
-        return "Staff: manager, hr, recruiter, cto.\nBots:\n" + "\n".join(lines)
+        return "Staff: manager, hr, recruiter, cto, android_dev, ios_dev.\nBots:\n" + "\n".join(lines)
     if cmd == "/hire":
         return await team.hire(arg) if arg else "Usage: /hire <job description>"
     if cmd == "/fire":

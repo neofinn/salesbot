@@ -46,6 +46,7 @@
   .tabs button { flex: 1; background: transparent; color: var(--muted); border-radius: 0; padding: 12px 6px; border-bottom: 2px solid transparent; }
   .tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
   .badge { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: var(--warn); color: #fff; font-size: 11px; }
+  .badge[hidden] { display: none; }
   .pane { flex: 1; overflow-y: auto; padding: 12px; display: none; }
   .pane.active { display: block; }
   .card { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
@@ -103,16 +104,21 @@
       <button data-tab="team" class="active">Team</button>
       <button data-tab="pending">Approvals<span class="badge" id="pendingCount" hidden></span></button>
       <button data-tab="leads">Leads</button>
+      <button data-tab="apps">Apps</button>
     </div>
     <div class="pane active" id="team">
       <form class="hire" id="hireForm">
         <input id="hireInput" placeholder="Job description for a new bot">
         <button>Hire</button>
       </form>
-      <div class="staff">Core staff: manager · hr · recruiter · cto</div>
+      <div class="staff">Core staff: manager · hr · recruiter · cto · android_dev · ios_dev</div>
       <div id="teamList"></div>
     </div>
     <div class="pane" id="pending"><div id="pendingList"></div></div>
+    <div class="pane" id="apps">
+      <div class="meta" style="margin-bottom:8px">Phone apps built by the Android and iOS developers, one per business. Ask the Manager, e.g. "Make an app for Lopez Bakery in orange".</div>
+      <div id="appList"></div>
+    </div>
     <div class="pane" id="leads">
       <div class="hire"><input id="leadSearch" placeholder="Search leads"></div>
       <div id="leadList"></div>
@@ -154,7 +160,7 @@
 const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, ...kids) => {
   const n = Object.assign(document.createElement(tag), props);
-  kids.flat().forEach((k) => n.append(k));
+  kids.flat().filter((k) => k != null && k !== false).forEach((k) => n.append(k));
   return n;
 };
 
@@ -269,11 +275,24 @@ async function loadLeads() {
     el("div", { className: "meta", textContent: "No leads yet." }));
 }
 
+async function loadApps() {
+  const apps = await api("/api/apps");
+  $("appList").replaceChildren(...(apps.length ? apps.map((a) => el("div", { className: "card" },
+    el("h3", {}, el("img", { src: `/app/${a.slug}/icon-192.png`, alt: "", width: 28, height: 28, style: "border-radius:7px;vertical-align:middle;margin-right:8px" }), `${a.name} · v${a.version}`),
+    el("div", { className: "meta", textContent: `${a.bundle_id} · ${a.server_url || "this server"}${a.notes ? " · " + a.notes : ""}` }),
+    el("div", { className: "row" },
+      el("a", { href: a.install_link, target: "_blank", textContent: "Open / install on phone" }),
+      el("a", { href: `/api/apps/${a.slug}/native.zip`, textContent: "Native project (Android + iOS)" })),
+    a.needs_public_url ? el("div", { className: "meta", textContent: "Set the server's public address in Connections so phones can reach it." }) : null,
+  )) : [el("div", { className: "meta", textContent: "No apps yet." })]));
+}
+
 function refresh() {
   loadStatus().catch(console.error);
   loadTeam().catch(console.error);
   loadPending().catch(console.error);
   loadLeads().catch(console.error);
+  loadApps().catch(console.error);
 }
 
 document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => {
