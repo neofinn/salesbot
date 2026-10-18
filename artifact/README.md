@@ -8,8 +8,14 @@ https://claude.ai/artifact/6YkVnFET8ApmLsBJfur2pV (a blank copy: https://claude.
 - Every copy of the artifact has its own `db`, so a duplicate starts empty: it opens on a
   "Set up your team" form (name or business, about you, people you work with, goals, voice). The profile is
   saved at `config/profile` and every bot reads it. The Manager can then hire a starting team.
-- "Start fresh" (Team pane) erases this copy's bots, tasks, contacts, drafts, chat and
-  profile. Rows already synced to Airtable stay in Airtable.
+- Profiles: the menu next to the MyOps name switches between profiles (one per business or area
+  of life) and adds new ones. Each profile has its own bots, tasks, contacts, drafts, chat,
+  profile and Airtable table. The first profile ("main") uses the top-level collections; the
+  others live under `spaces/<id>/`, and the list is the `spaces` collection. The open profile is
+  remembered per viewer in localStorage.
+- "Start fresh" (Team pane) erases the open profile's bots, tasks, contacts, drafts, chat and
+  profile ("Delete profile" on any profile but the first also removes it from the menu). Rows
+  already synced to Airtable stay in Airtable.
 - Every delegation is logged on the Tasks board (`tasks`) with its status and report.
 - The Contacts tab is the team's contact book (leads, clients and other contacts).
 - Clay (lead search, emails, web research) and Airtable (contact sync) come from the viewer's
