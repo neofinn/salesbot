@@ -103,6 +103,8 @@ main {
   font-family: var(--display); font-weight: 700; font-size: 15px;
   background: var(--accent-soft); color: var(--accent);
 }
+.team-group { display: flex; flex-direction: column; gap: 8px; }
+.team-name { font-size: 12px; font-weight: 600; color: var(--muted); margin-top: 4px; }
 .badge.staff .mark { background: var(--staff-soft); color: var(--staff); }
 .badge .name { font-weight: 600; display: flex; justify-content: space-between; gap: 6px; align-items: baseline; }
 .badge .name code { font-family: var(--mono); font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
@@ -269,6 +271,7 @@ textarea, input, select {
         <button role="tab" data-sub="reports" aria-selected="false">Reports</button>
         <button role="tab" data-sub="notes" aria-selected="false">Notes</button>
         <button role="tab" data-sub="videos" aria-selected="false">Videos</button>
+        <button role="tab" data-sub="apps" aria-selected="false">Apps</button>
         <button role="tab" data-sub="leads" aria-selected="false">Contacts</button>
       </div>
       <span class="eyebrow" id="rightMeta" hidden></span>
@@ -278,6 +281,7 @@ textarea, input, select {
     <div class="scroll" id="sub-reports" hidden></div>
     <div class="scroll" id="sub-notes" hidden></div>
     <div class="scroll" id="sub-videos" hidden></div>
+    <div class="scroll" id="sub-apps" hidden></div>
     <div class="scroll" id="sub-leads" hidden>
       <div class="filter"><input id="leadSearch" placeholder="Search contacts" aria-label="Search contacts"></div>
       <div class="filter" id="atButtons" hidden>
@@ -303,12 +307,17 @@ const el = (tag, props = {}, ...kids) => {
 
 // ---------- The company ------------------------------------------------------
 const STAFF = [
-  { name: "manager", title: "Manager", mark: "M", role: "Takes your requests, plans the work, delegates and reports back." },
-  { name: "recruiter", title: "Recruiter", mark: "R", role: "Designs a new bot when no one on the team fits a job." },
-  { name: "hr", title: "HR", mark: "H", role: "Reviews every candidate: right role, safe instructions, least access." },
-  { name: "cto", title: "CTO", mark: "C", role: "Owns the tech: Claude models, connections and data; checks every hire's tools can actually work." },
-  { name: "scribe", title: "Scribe", mark: "S", role: "Keeps the record: minutes, decisions, summaries and documents, saved in Notes." },
-  { name: "video", title: "Video Producer", mark: "V", role: "Scripts and storyboards short videos, then renders them for you to download." },
+  { team: "Leadership", name: "manager", title: "Manager", mark: "M", role: "Takes your requests, plans the work, delegates and reports back." },
+  { team: "Leadership", name: "cto", title: "CTO", mark: "C", role: "Owns the tech: Claude models, connections and data; checks every hire's tools can actually work." },
+  { team: "People", name: "recruiter", title: "Recruiter", mark: "R", role: "Designs a new bot when no one on the team fits a job." },
+  { team: "People", name: "hr", title: "HR", mark: "H", role: "Reviews every candidate: right role, safe instructions, least access." },
+  { team: "Development", name: "web_dev", title: "Web Developer", mark: "W", role: "Builds and updates each business's app: one installable web app, previewed in Apps." },
+  { team: "Development", name: "android_dev", title: "Android Developer", mark: "A", role: "Packages apps for Android: a native project that builds an installable APK." },
+  { team: "Development", name: "ios_dev", title: "iOS Developer", mark: "I", role: "Packages apps for iPhone: home-screen install, and a native Xcode project for TestFlight." },
+  { team: "Content", name: "scribe", title: "Scribe", mark: "S", role: "Keeps the record: minutes, decisions, summaries and documents, saved in Notes." },
+  { team: "Content", name: "video", title: "Video Producer", mark: "V", role: "Scripts and storyboards short videos, then renders them for you to download." },
+  { team: "Maintenance", name: "sysmaint", title: "Systems Maintainer", mark: "Y", role: "Checks the team's health: connections, stuck or failing tasks, bots whose tools can't work." },
+  { team: "Maintenance", name: "datakeeper", title: "Data Keeper", mark: "D", role: "Keeps the data clean: duplicate contacts, stale drafts, broken records." },
 ];
 const TOOLS = {
   crm_read: "read the contact book (leads, clients and other contacts)",
@@ -331,7 +340,7 @@ const NAME_RE = /^[a-z][a-z0-9_]{1,31}$/;
 const MAX_ROUNDS = 4;
 
 const S = {
-  bots: [], leads: [], outbox: [], chat: [], tasks: [], reports: [], notes: [], videos: [],
+  bots: [], leads: [], outbox: [], chat: [], tasks: [], reports: [], notes: [], videos: [], apps: [],
   profile: null, loaded: false, editingProfile: false, // who the open profile works for
   root: null, space: "main", spaces: [], unsubs: [], // all profiles, and the one open now
   memory: null, // the open profile's long-term chat memory (config/memory)
@@ -423,7 +432,7 @@ function openSpace(id) {
   S.unsubs = [];
   S.space = id;
   try { localStorage.setItem("myops.space", id); } catch { /* per-viewer convenience only */ }
-  Object.assign(S, { bots: [], tasks: [], leads: [], outbox: [], chat: [], reports: [], notes: [], videos: [], profile: null, memory: null, at: null, atNote: "", loaded: false, editingProfile: false });
+  Object.assign(S, { bots: [], tasks: [], leads: [], outbox: [], chat: [], reports: [], notes: [], videos: [], apps: [], profile: null, memory: null, at: null, atNote: "", loaded: false, editingProfile: false });
   S.store = scoped(S.root, id);
   const onErr = (e) => { if (e?.code !== "unavailable") setStatus("Live updates stopped. Reload the page.", true); };
   const sub = (c, fn) => S.unsubs.push(S.store.sub(c, fn, onErr));
@@ -432,6 +441,7 @@ function openSpace(id) {
   sub("reports", (rows) => { S.reports = rows; renderReports(); });
   sub("notes", (rows) => { S.notes = rows; renderNotes(); });
   sub("videos", (rows) => { S.videos = rows; renderVideos(); });
+  sub("apps", (rows) => { S.apps = rows; renderApps(); });
   sub("leads", (rows) => { S.leads = rows; renderLeads(); });
   sub("config", (rows) => {
     const cfg = rows.find((r) => r.id === "airtable");
@@ -475,11 +485,14 @@ function profileBrief() {
 function setStatus(text, bad = false) { const s = $("status"); s.textContent = text; s.classList.toggle("bad", bad); }
 
 function renderTeam() {
-  $("staff").replaceChildren(...STAFF.map((p) => el("div", { className: "badge staff" },
-    el("div", { className: "mark", textContent: p.mark }),
-    el("div", { className: "name" }, el("span", { textContent: p.title })),
-    el("div", { className: "role", textContent: p.role }),
-  )));
+  const teams = [...new Set(STAFF.map((p) => p.team))];
+  $("staff").replaceChildren(...teams.map((t) => el("div", { className: "team-group" },
+    el("div", { className: "team-name", textContent: `${t} team` }),
+    ...STAFF.filter((p) => p.team === t).map((p) => el("div", { className: "badge staff" },
+      el("div", { className: "mark", textContent: p.mark }),
+      el("div", { className: "name" }, el("span", { textContent: p.title })),
+      el("div", { className: "role", textContent: p.role }),
+    )))));
   const bots = [...S.bots].sort((a, b) => (a.hiredAt || 0) - (b.hiredAt || 0));
   $("headcount").textContent = `${STAFF.length} staff · ${bots.length} bot${bots.length === 1 ? "" : "s"}`;
   $("bots").replaceChildren(...(bots.length ? bots.map(botBadge)
@@ -617,7 +630,7 @@ function renderOperation() {
 // The main profile stays in the list (empty); any other profile is removed from it.
 async function resetOperation() {
   const id = S.space;
-  for (const c of ["bots", "tasks", "leads", "outbox", "chat", "reports", "notes", "videos", "diagnostics"]) await S.store.clear(c);
+  for (const c of ["bots", "tasks", "leads", "outbox", "chat", "reports", "notes", "videos", "apps", "diagnostics"]) await S.store.clear(c);
   for (const doc of ["profile", "airtable", "memory"]) await S.store.del("config", doc).catch(() => {});
   await S.root.del("spaces", id).catch(() => {});
   showPane("pane-chat");
@@ -740,7 +753,7 @@ function fetchEmailButton(l) {
   return b;
 }
 
-function renderAll() { renderTeam(); renderConnections(); renderOperation(); renderChat(); renderOutbox(); renderTasks(); renderReports(); renderNotes(); renderVideos(); renderLeads(); syncCompose(); }
+function renderAll() { renderTeam(); renderConnections(); renderOperation(); renderChat(); renderOutbox(); renderTasks(); renderReports(); renderNotes(); renderVideos(); renderApps(); renderLeads(); syncCompose(); }
 
 function syncCompose() {
   $("sendBtn").hidden = S.busy; $("stopBtn").hidden = !S.busy;
@@ -831,6 +844,8 @@ function managerPrompt(history, message, results, round) {
     "- Hiring: the Recruiter designs the bot from your job description, the CTO checks its tools can work with what is connected, and HR approves or rejects it. Name the bot you want in snake_case.",
     "- The Scribe keeps the written record: minutes of what the team did, decision logs, summaries, SOPs, briefs and other documents, saved in the Notes tab. Use a scribe action, saying what to write; it reads the chat, tasks, reports and existing notes itself.",
     "- The Video Producer scripts, storyboards and renders short videos (promos, explainers, social clips in 16:9, 9:16 or 1:1) that the owner downloads from the Videos tab. Use a make_video action with the brief: goal, audience, key message, length and format.",
+    `- The Development team (Web, Android and iOS developers) builds and updates each business's own app: a self-contained installable web app the owner previews in the Apps tab, downloads, and packages as a native Android/iOS project. Use a build_app action with the brief (which business, who uses it, screens and features, colors); to change an existing app give its app_id. Apps: ${JSON.stringify(S.apps.map((a) => ({ app_id: a.id, name: a.name, version: a.version })))}.`,
+    "- The Maintenance team (Systems Maintainer and Data Keeper) checks the team's health: connections, stuck or failing tasks, bots whose tools cannot work, duplicate contacts, stale drafts. Use a maintenance action with mode \"check\" for a health report; use mode \"fix\" only when the owner asks to fix or clean up (it marks stuck tasks failed, merges duplicate contacts and expires drafts older than 30 days).",
     "- The CTO answers technical questions (which connections and data are live, why a bot's tool failed, what a job needs set up): use an ask_cto action.",
     "",
     `Team roster (worker bots): ${JSON.stringify(rosterDigest())}`,
@@ -845,7 +860,7 @@ function managerPrompt(history, message, results, round) {
     results.length ? "\nWhat happened with the actions you already took for this message:\n" + results.map((r, i) => `${i + 1}. ${r}`).join("\n") : "",
     "",
     "Reply with ONLY a JSON object:",
-    '{"reply": "your message to the owner", "actions": [ {"type": "hire", "name": "snake_case_name", "job": "job description"}, {"type": "delegate", "bot": "bot_name", "task": "complete, self-contained brief including every detail the bot needs (names, emails, tone)"}, {"type": "fire", "bot": "bot_name"}, {"type": "ask_cto", "question": "technical question"}, {"type": "scribe", "request": "what to write or update"}, {"type": "make_video", "request": "video brief"} ]}',
+    '{"reply": "your message to the owner", "actions": [ {"type": "hire", "name": "snake_case_name", "job": "job description"}, {"type": "delegate", "bot": "bot_name", "task": "complete, self-contained brief including every detail the bot needs (names, emails, tone)"}, {"type": "fire", "bot": "bot_name"}, {"type": "ask_cto", "question": "technical question"}, {"type": "scribe", "request": "what to write or update"}, {"type": "make_video", "request": "video brief"}, {"type": "build_app", "request": "app brief", "app_id": "optional, to update an app"}, {"type": "maintenance", "mode": "check"} ]}',
     "Actions run in order, so you may hire a bot and delegate to it in the same list. Delegate to a bot only if it is on the roster or hired earlier in the list.",
     "While actions remain, keep \"reply\" to one short line. When the work is finished, return \"actions\": [] and make \"reply\" your final report: what was done and by whom, the results, and draft numbers waiting in the out-tray. Plain text, no markdown headings.",
     round >= MAX_ROUNDS ? "This is your last round: \"actions\" must be []." : "",
@@ -879,6 +894,8 @@ async function runAction(a, signal) {
   if (type === "ask_cto") return askCto(String(a.question || ""), signal);
   if (type === "scribe") return scribeWrite(String(a.request || ""), signal);
   if (type === "make_video") return produceVideo(String(a.request || ""), signal);
+  if (type === "build_app") return buildApp(String(a.request || ""), String(a.app_id || ""), signal);
+  if (type === "maintenance") return runMaintenance(a.mode === "fix" ? "fix" : "check", signal);
   if (type === "fire") {
     const bot = S.bots.find((b) => b.name === a.bot);
     if (!bot) return `fire ${a.bot}: no such bot.`;
@@ -1106,6 +1123,244 @@ function renderVideos() {
       vid.narration ? el("details", { style: "font-size:13px;margin-top:6px" }, el("summary", { textContent: "Voice-over script" }), el("div", { style: "white-space:pre-wrap", textContent: vid.narration })) : null,
       vid.caption ? el("details", { style: "font-size:13px" }, el("summary", { textContent: "Post caption" }), el("div", { style: "white-space:pre-wrap", textContent: vid.caption })) : null);
   }) : [el("p", { className: "muted", style: "font-size:13px", textContent: "Videos made by the Video Producer appear here: play them, then render and download the file. Try: \"Make a 20-second vertical video announcing our new service.\"" })]));
+}
+
+// ---------- Development team: one self-contained app per business (apps collection) ----------
+const APP_MAX = 150000;
+const appSlug = (name) => slugText(name).slice(0, 40) || "app";
+const bundleId = (slug) => "com.myops." + (slug.replace(/[^a-z0-9]/g, "").replace(/^[0-9]+/, "") || "app");
+async function buildApp(request, appId, signal) {
+  if (!request) return "build_app: no brief given.";
+  const old = appId ? S.apps.find((a) => a.id === appId) : null;
+  if (appId && !old) return `build_app: no app with id ${appId}; existing apps: ${S.apps.map((a) => `${a.id} (${a.name})`).join(", ") || "none"}.`;
+  const st = step(old ? `Web Developer is updating ${old.name}…` : "Web Developer is building the app…");
+  let text;
+  try {
+    ({ text } = await S.sample([
+      `You are the Web Developer of MyOps, ${orgName()}'s team of AI bot employees. You build small, polished phone apps for the owner's businesses as ONE self-contained HTML file that the Android and iOS developers then package.`,
+      `Who the team works for:\n${profileBrief()}`,
+      old ? `Update this app (version ${old.version}). Change request: ${request}\n\nCurrent app:\n${old.html}` : `Brief: ${request}`,
+      "Rules for the file: everything inline (CSS in <style>, JavaScript in <script>); no external scripts, stylesheets, fonts or images by URL (use inline SVG, emoji and CSS); mobile-first and touch-friendly; works offline; keep any data the user enters in localStorage; include <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"> and <meta name=\"theme-color\">; accessible labels and contrast; under 50 KB.",
+      "Only state facts about the business that appear above or in the brief: never invent prices, phone numbers, addresses, reviews or opening hours; where the owner must fill something in, show a clear placeholder like [phone number]. Phone and email buttons use tel: and mailto: links.",
+      'Reply in exactly this format: first a single line of JSON {"name": "App name", "short_name": "up to 12 chars", "color": "#hex theme color", "background": "#hex", "description": "one line", "notes": "what you built or changed"}, then a line with =====HTML=====, then the complete HTML file starting with <!doctype html>. Nothing after </html>.',
+    ].join("\n\n"), { signal, cache: false, modelTier: S.tier }));
+  } catch (e) { st.fail("Web Developer couldn't finish"); if (e?.code === "cancelled") throw e; return `build_app failed (${errText(e)}).`; }
+  const [head, ...rest] = String(text || "").split("=====HTML=====");
+  let meta = {};
+  try { meta = parseJson(head); } catch { /* fall back to the old app's details */ }
+  const html = rest.join("").replace(/^[\s`]*(html)?\s*/i, "").replace(/```\s*$/, "").trim();
+  if (!/<html[\s>]/i.test(html) || !/<\/html>\s*$/i.test(html)) { st.fail("The app came back incomplete"); return "build_app: the developer's file was incomplete (no full HTML document); ask again, perhaps with a smaller scope."; }
+  if (html.length > APP_MAX) { st.fail("The app was too large"); return `build_app: the file was ${html.length} characters, over the ${APP_MAX} limit; ask for a simpler app.`; }
+  const name = String(meta.name || old?.name || "My app").slice(0, 60);
+  const hex = (v, d) => (HEX.test(String(v)) ? v : d);
+  const doc = {
+    name, short_name: String(meta.short_name || old?.short_name || name).slice(0, 12), slug: old?.slug || appSlug(name),
+    color: hex(meta.color, old?.color || "#233a57"), background: hex(meta.background, old?.background || "#ffffff"),
+    description: String(meta.description || old?.description || "").slice(0, 200), notes: String(meta.notes || "").slice(0, 600),
+    version: (old?.version || 0) + 1, html, request: request.slice(0, 600), createdAt: old?.createdAt || Date.now(), updatedAt: Date.now(),
+  };
+  const id = old?.id || shortId("a", new Set(S.apps.map((a) => a.id)));
+  await S.store.set("apps", id, doc);
+  if (!S.apps.some((a) => a.id === id)) S.apps.push({ id, ...doc });
+  st.done(`Web Developer ${old ? "updated" : "built"} ${name} v${doc.version} (${Math.max(1, Math.round(html.length / 1024))} KB)`);
+  step(`Android and iOS developers packaged ${bundleId(doc.slug)}`).done();
+  return `build_app: ${name} v${doc.version} (app_id ${id}) is ready in the Apps tab: preview it, download it as a web app, or download the native Android/iOS project. ${doc.notes}`;
+}
+
+// Minimal ZIP writer (stored, no compression) for the native project download.
+const CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const crc32 = (b) => { let c = 0xffffffff; for (let i = 0; i < b.length; i++) c = CRC_TABLE[(c ^ b[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+function zipFiles(files) {
+  const enc = new TextEncoder(), parts = [], central = [];
+  let offset = 0;
+  for (const [path, content] of Object.entries(files)) {
+    const name = enc.encode(path), data = typeof content === "string" ? enc.encode(content) : content, crc = crc32(data);
+    const local = new DataView(new ArrayBuffer(30));
+    [[0, 0x04034b50, 4], [4, 20, 2], [6, 0x0800, 2], [8, 0, 2], [10, 0, 2], [12, 33, 2], [14, crc, 4], [18, data.length, 4], [22, data.length, 4], [26, name.length, 2], [28, 0, 2]]
+      .forEach(([o, v, n]) => (n === 4 ? local.setUint32(o, v, true) : local.setUint16(o, v, true)));
+    const cen = new DataView(new ArrayBuffer(46));
+    [[0, 0x02014b50, 4], [4, 20, 2], [6, 20, 2], [8, 0x0800, 2], [10, 0, 2], [12, 0, 2], [14, 33, 2], [16, crc, 4], [20, data.length, 4], [24, data.length, 4], [28, name.length, 2], [30, 0, 2], [32, 0, 2], [34, 0, 2], [36, 0, 2], [38, 0, 4], [42, offset, 4]]
+      .forEach(([o, v, n]) => (n === 4 ? cen.setUint32(o, v, true) : cen.setUint16(o, v, true)));
+    parts.push(local, name, data); central.push(cen, name);
+    offset += 30 + name.length + data.length;
+  }
+  const size = central.reduce((a, x) => a + x.byteLength, 0), end = new DataView(new ArrayBuffer(22)), count = Object.keys(files).length;
+  [[0, 0x06054b50, 4], [4, 0, 2], [6, 0, 2], [8, count, 2], [10, count, 2], [12, size, 4], [16, offset, 4], [20, 0, 2]]
+    .forEach(([o, v, n]) => (n === 4 ? end.setUint32(o, v, true) : end.setUint16(o, v, true)));
+  return new Blob([...parts, ...central, end], { type: "application/zip" });
+}
+async function appIcon(app, size = 1024) {
+  const c = el("canvas", { width: size, height: size }), ctx = c.getContext("2d");
+  ctx.fillStyle = app.color; ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = "#ffffff"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.font = `700 ${Math.round(size * 0.55)}px Inter, "Segoe UI", system-ui, sans-serif`;
+  ctx.fillText((app.name.trim()[0] || "A").toUpperCase(), size / 2, size * 0.54);
+  const blob = await new Promise((res) => c.toBlob(res, "image/png"));
+  return new Uint8Array(await blob.arrayBuffer());
+}
+async function nativeProject(app) {
+  const id = bundleId(app.slug), v = `1.0.${app.version}`, root = `${app.slug}/`;
+  const pkg = {
+    name: app.slug, version: v, private: true, description: app.description || `${app.name} (MyOps app)`,
+    scripts: {
+      assets: `capacitor-assets generate --iconBackgroundColor '${app.color}' --iconBackgroundColorDark '${app.color}' --splashBackgroundColor '${app.background}' --splashBackgroundColorDark '${app.color}'`,
+      android: "npx cap add android && npm run assets -- --android && npx cap sync android",
+      ios: "npx cap add ios && npm run assets -- --ios && npx cap sync ios",
+    },
+    dependencies: { "@capacitor/core": "^7.4.0", "@capacitor/android": "^7.4.0", "@capacitor/ios": "^7.4.0" },
+    devDependencies: { "@capacitor/cli": "^7.4.0", "@capacitor/assets": "^3.0.5" },
+  };
+  const config = { appId: id, appName: app.name, webDir: "www", android: { backgroundColor: app.background }, ios: { backgroundColor: app.background, contentInset: "always" } };
+  const workflow = `name: Build Android APK
+on: [push, workflow_dispatch]
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - run: npm install --no-audit --no-fund
+      - run: npm run android
+      - run: cd android && ./gradlew assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with: { name: ${app.slug}-apk, path: android/app/build/outputs/apk/debug/app-debug.apk }
+`;
+  const readme = `# ${app.name}
+
+${app.description || ""}
+
+Made by the MyOps Development team. Version ${v}, bundle id \`${id}\`. The app is \`www/index.html\`; it works offline.
+
+## Android (APK you can install directly)
+Easiest: put this folder in a new GitHub repository. The included workflow builds the APK on every push:
+open Actions > Build Android APK > the latest run > Artifacts, download it, and open it on the phone
+(allow installs from your browser or files app).
+
+On a computer with Node 22 and Android Studio:
+    npm install
+    npm run android
+    cd android && ./gradlew assembleDebug     # android/app/build/outputs/apk/debug/app-debug.apk
+
+Google Play: build a signed bundle (./gradlew bundleRelease) and upload it with a Play Console account ($25 once).
+
+## iPhone
+No build needed: host www/index.html on any https site (GitHub Pages, Netlify), open it in Safari and tap
+Share > Add to Home Screen.
+Native app: on a Mac with Xcode run \`npm install && npm run ios && npx cap open ios\`. Installing on iPhones,
+TestFlight and the App Store need an Apple Developer account ($99/year).
+`;
+  return zipFiles({
+    [root + "package.json"]: JSON.stringify(pkg, null, 2), [root + "capacitor.config.json"]: JSON.stringify(config, null, 2),
+    [root + "www/index.html"]: app.html, [root + "assets/logo.png"]: await appIcon(app),
+    [root + "README.md"]: readme, [root + ".github/workflows/android.yml"]: workflow, [root + ".gitignore"]: "node_modules/\nandroid/\nios/\n",
+  });
+}
+function renderApps() {
+  const items = byNewest(S.apps);
+  $("sub-apps").replaceChildren(...(items.length ? items.map((a, i) => {
+    const frame = el("div", { hidden: true, style: "margin:8px 0" });
+    const preview = el("button", { className: "btn ghost small", type: "button", textContent: "Preview" });
+    preview.onclick = () => {
+      if (!frame.hidden) { frame.hidden = true; frame.replaceChildren(); preview.textContent = "Preview"; return; }
+      frame.replaceChildren(el("iframe", { title: `${a.name} preview`, sandbox: "allow-scripts allow-forms allow-modals", srcdoc: a.html,
+        style: `width:100%;max-width:360px;height:620px;border:1px solid var(--line);border-radius:18px;background:${a.background};display:block` }));
+      frame.hidden = false; preview.textContent = "Close preview";
+    };
+    const web = el("button", { className: "btn ghost small", type: "button", textContent: "Download app (.html)", hidden: !S.downloads });
+    web.onclick = () => saveFile(`${a.slug}.html`, a.html, web);
+    const native = el("button", { className: "btn ghost small", type: "button", textContent: "Native project (.zip)", hidden: !S.downloads });
+    native.onclick = async () => { native.disabled = true; try { await saveFile(`${a.slug}-native.zip`, await nativeProject(a), native, "Native project (.zip)"); } finally { native.disabled = false; } };
+    const del = el("button", { className: "fire", type: "button", textContent: "Delete", hidden: S.readOnly });
+    del.onclick = async () => {
+      if (!del.classList.contains("armed")) { del.classList.add("armed"); del.textContent = "Confirm?"; setTimeout(() => { del.classList.remove("armed"); del.textContent = "Delete"; }, 4000); return; }
+      await S.store.del("apps", a.id).catch(showStoreError);
+    };
+    return el("details", { className: "task", open: i === 0 },
+      el("summary", { style: "cursor:pointer;font-weight:600" },
+        el("span", { style: `display:inline-grid;place-items:center;width:22px;height:22px;border-radius:6px;background:${HEX.test(a.color) ? a.color : "#233a57"};color:#fff;font-size:12px;margin-right:6px;vertical-align:middle`, textContent: (a.name[0] || "A").toUpperCase() }),
+        `${a.name} · v${a.version}`),
+      el("div", { className: "muted", style: "font-size:13px;margin:4px 0", textContent: [a.description, a.notes && `Latest: ${a.notes}`, `app_id ${a.id} · ${bundleId(a.slug)}`].filter(Boolean).join(" · ") }),
+      el("div", { style: "display:flex;gap:6px;flex-wrap:wrap;align-items:center" }, preview, web, native, del),
+      frame,
+      el("details", { style: "font-size:13px;margin-top:6px" }, el("summary", { textContent: "Install on phones" }),
+        el("div", { style: "white-space:pre-wrap", textContent: "Android: download the native project, put it in a GitHub repository, and its workflow builds an APK to install (or build it in Android Studio; see README).\niPhone: host the .html file on any https site (GitHub Pages, Netlify), open it in Safari, Share > Add to Home Screen. A native iPhone app needs an Apple Developer account and a Mac (README).\nTo change the app, tell the Manager what to change; each update bumps the version." })));
+  }) : [el("p", { className: "muted", style: "font-size:13px", textContent: "Apps built by the Development team appear here. Try: \"Build an app for my business where customers can see our services and book a call.\"" })]));
+}
+
+// ---------- Maintenance team: health check and safe clean-up ----------------------------
+const STUCK_MS = 30 * 60 * 1000, STALE_MS = 30 * 24 * 3600 * 1000;
+const RANK = Object.fromEntries(STATUSES.map((s, i) => [s, i]));
+function contactKey(l) {
+  const email = String(l.email || "").trim().toLowerCase();
+  if (email) return "e:" + email;
+  const name = String(l.name || "").trim().toLowerCase(), co = String(l.company || "").trim().toLowerCase();
+  return name ? `n:${name}|${co}` : "";
+}
+async function runMaintenance(mode, signal) {
+  const now = Date.now();
+  const sys = step("Systems Maintainer is checking the team…");
+  const tech = techStatus();
+  const stuck = S.tasks.filter((t) => t.status === "working" && now - (t.createdAt || 0) > STUCK_MS);
+  const failed = S.tasks.filter((t) => t.status === "failed" && now - (t.createdAt || 0) < 7 * 24 * 3600 * 1000);
+  const blocked = S.bots.map((b) => ({ bot: b.name, tools: (b.tools || []).filter((t) => tech.tools_that_cannot_work_now.includes(t)) })).filter((x) => x.tools.length);
+  sys.done(`Systems Maintainer: ${stuck.length} stuck task(s), ${failed.length} failed this week, ${blocked.length} bot(s) with tools that can't work`);
+  const data = step("Data Keeper is checking the records…");
+  const groups = {};
+  for (const l of S.leads) { const k = contactKey(l); if (k) (groups[k] ||= []).push(l); }
+  const dupes = Object.values(groups).filter((g) => g.length > 1);
+  const stale = S.outbox.filter((d) => d.status === "pending" && now - (d.createdAt || 0) > STALE_MS);
+  const nameless = S.leads.filter((l) => !String(l.name || "").trim());
+  data.done(`Data Keeper: ${dupes.reduce((a, g) => a + g.length - 1, 0)} duplicate contact(s), ${stale.length} draft(s) waiting over 30 days, ${nameless.length} contact(s) without a name`);
+  if (signal?.aborted) throw { code: "cancelled" };
+
+  const fixed = [];
+  if (mode === "fix") {
+    const fx = step("Maintenance team is fixing what it safely can…");
+    try {
+      for (const t of stuck) await S.store.update("tasks", t.id, { status: "failed", report: (t.report ? t.report + "\n\n" : "") + "Marked failed by Maintenance: no result after 30 minutes.", finishedAt: now });
+      if (stuck.length) fixed.push(`marked ${stuck.length} stuck task(s) failed`);
+      let merged = 0;
+      for (const g of dupes) {
+        const [keep, ...rest] = [...g].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+        const patch = {};
+        for (const f of ["name", "company", "title", "email", "phone", "linkedin"]) if (!keep[f]) { const v = rest.find((x) => x[f])?.[f]; if (v) patch[f] = v; }
+        const best = [keep, ...rest].reduce((a, x) => ((RANK[x.status] ?? 0) > (RANK[a] ?? 0) ? x.status : a), keep.status || "new");
+        if (best !== keep.status) patch.status = best;
+        const notes = [...new Set([keep, ...rest].map((x) => String(x.notes || "").trim()).filter(Boolean))].join("\n").slice(0, 2000);
+        if (notes !== String(keep.notes || "").trim()) patch.notes = notes;
+        if (Object.keys(patch).length) await S.store.update("leads", keep.id, { ...patch, updatedAt: now });
+        for (const x of rest) {
+          for (const d of S.outbox.filter((d) => d.lead === x.id)) await S.store.update("outbox", d.id, { lead: keep.id });
+          await S.store.del("leads", x.id); merged++;
+        }
+      }
+      if (merged) fixed.push(`merged ${merged} duplicate contact(s) into their oldest record`);
+      for (const d of stale) await S.store.update("outbox", d.id, { status: "expired", decidedAt: now });
+      if (stale.length) fixed.push(`expired ${stale.length} draft(s) waiting over 30 days`);
+      fx.done(fixed.length ? `Fixed: ${fixed.join("; ")}` : "Nothing needed fixing");
+    } catch (e) { fx.fail("A fix failed part-way"); return `maintenance fix failed part-way (${errText(e)}); done so far: ${fixed.join("; ") || "nothing"}.`; }
+  }
+
+  const lines = [
+    `Connections: Clay ${tech.connections.clay}; Airtable ${tech.connections.airtable}; Claude tier ${S.tier}${S.lastError ? `; last AI error: ${S.lastError}` : ""}.`,
+    `Tasks: ${S.tasks.length} total, ${stuck.length} stuck (working over 30 minutes), ${failed.length} failed in the last 7 days.`,
+    ...failed.slice(0, 5).map((t) => `- Failed #${t.n} (${t.bot}): ${short(t.report, 160)}`),
+    blocked.length ? `Bots with tools that can't work now: ${blocked.map((x) => `${x.bot} (${x.tools.join(", ")})`).join("; ")}.` : "Every bot's tools can work with what is connected.",
+    `Contacts: ${S.leads.length}, ${dupes.reduce((a, g) => a + g.length - 1, 0)} duplicates in ${dupes.length} group(s)${dupes.length ? ": " + dupes.slice(0, 5).map((g) => g[0].name || g[0].email).join(", ") : ""}; ${nameless.length} without a name.`,
+    `Out-tray: ${S.outbox.filter((d) => d.status === "pending").length} drafts pending, ${stale.length} waiting over 30 days.`,
+    `Records: ${S.notes.length} notes, ${S.videos.length} videos, ${S.apps.length} apps, ${S.reports.length} research reports.`,
+    mode === "fix" ? `Fixed: ${fixed.join("; ") || "nothing needed fixing"}.` : (stuck.length || dupes.length || stale.length ? "Ask for a clean-up to fix the stuck tasks, duplicates and stale drafts." : "Nothing needs cleaning up."),
+    S.at && mode === "fix" && dupes.length ? "Merged contacts were removed here only; remove them from the Airtable table too if you sync it." : "",
+  ].filter(Boolean);
+  const title = `Health check ${new Date(now).toLocaleDateString()}${mode === "fix" ? " (clean-up)" : ""}`;
+  const id = shortId("n", new Set(S.notes.map((n) => n.id)));
+  const doc = { title, body: lines.join("\n"), by: "maintenance", request: `maintenance ${mode}`, createdAt: now, updatedAt: now };
+  await S.store.set("notes", id, doc).catch(() => {});
+  if (!S.notes.some((n) => n.id === id)) S.notes.push({ id, ...doc });
+  return `maintenance ${mode} (report saved in Notes as "${title}"):\n${lines.join("\n")}`;
 }
 
 // CTO: the live technical picture, technical questions, and a tools check on every hire.
@@ -1716,7 +1971,7 @@ $("atImportBtn").addEventListener("click", (e) => importFromAirtable(e.currentTa
 $("atSetupBtn").addEventListener("click", (e) => setupAirtable(e.currentTarget));
 document.querySelectorAll(".subtabs button").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll(".subtabs button").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
-  for (const k of ["outbox", "tasks", "reports", "notes", "videos", "leads"]) $(`sub-${k}`).hidden = b.dataset.sub !== k;
+  for (const k of ["outbox", "tasks", "reports", "notes", "videos", "apps", "leads"]) $(`sub-${k}`).hidden = b.dataset.sub !== k;
   $("rightMeta").hidden = b.dataset.sub !== "leads";
 }));
 function showPane(id) {

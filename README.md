@@ -20,8 +20,12 @@ You talk to the team from a **web app**, over **Telegram**, or in a terminal cha
                       ├──► ask_cto ──► CTO (router status, free API hunt, model changes)
                       ├──► ask_app_dev ──► Android / iOS developers (phone apps per business)
                       ├──► ask_scribe ──► Scribe (minutes, decision logs, summaries, documents)
-                      └──► ask_video_producer ──► Video Producer (animated text videos, MP4)
+                      ├──► ask_video_producer ──► Video Producer (animated text videos, MP4)
+                      └──► ask_maintenance ──► Maintenance team (health checks, backups, clean-up)
 ```
+
+Core staff by team: **Leadership** (manager, cto) · **People** (recruiter, hr) · **Development**
+(android_dev, ios_dev) · **Content** (scribe, video_producer) · **Maintenance** (maintenance).
 
 ## Deploy (get your own link)
 
@@ -172,6 +176,24 @@ pointing there.
 Set `SALESBOT_PUBLIC_URL` (the https address phones use to reach the server) for app links and
 native projects.
 
+## Maintenance team
+
+The **maintenance** staff (systems maintainer and data keeper) keeps the team healthy. Ask the Manager
+for a health check, a backup or a clean-up:
+
+- *health check*: tasks stuck for over 30 minutes, failed tasks this week and their errors, duplicate
+  contacts (same email, or same name and company), approvals waiting over 30 days, unrendered videos,
+  data size, free disk and the last backup.
+- *backup*: a consistent copy of the database in `data/backups/` (the last 7 are kept).
+- *clean-up* (only when you ask): marks stuck tasks failed, merges duplicate contacts into the oldest
+  record (filling empty fields, keeping the furthest pipeline stage and all notes) after taking a backup,
+  and expires approvals older than 30 days. AI model and key problems go to the CTO.
+
+The claude.ai artifact has the same Maintenance team (Systems Maintainer and Data Keeper; its report is
+saved in Notes) and a Development team (Web, Android and iOS developers) that builds a self-contained app
+per business: preview it in the Apps tab, download it as a web app, or download a native Capacitor
+project whose GitHub workflow builds an installable Android APK.
+
 ## Scribe and Video Producer
 
 Two more core staff:
@@ -277,6 +299,7 @@ salesbot/
   agents/team.py       Manager, HR, Recruiter, CTO, Android/iOS devs, Scribe, Video Producer; hiring, delegation, approvals, chat memory
   apps/                phone apps: icons, installable web app, Capacitor native projects
   media/video.py       Video Producer storyboards rendered to MP4 with ffmpeg
+  maintenance.py       Maintenance team: health check, backups, safe clean-up
   llm/                 provider-neutral gateway + Claude API / Claude Code CLI / OpenAI / xAI / Gemini
   tools/               web search & fetch, OpenClaw browsing, stock research, email, SMS, CRM
   research/            stock research engine (prices, SEC financials, technicals, breakout scan)
