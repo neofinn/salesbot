@@ -279,13 +279,15 @@ const TOOLS = {
   draft_email: "draft emails (they wait for the owner's approval)",
   draft_sms: "draft text messages (they wait for the owner's approval)",
   find_leads: "look up real companies and contacts (with emails and phones) in the owner's Clay account",
+  web_research: "research companies on the live web through Clay: recent news, open jobs, growth, funding, and custom questions answered with sources",
   airtable: "search and read the owner's Airtable lead table (every lead in the lead book is also synced there automatically)",
 };
 // Airtable: where leads sync to. Saved in this page's data (config/airtable) so it can be changed later.
 const AIRTABLE = "Airtable";
 // Clay tools a find_leads bot may call (names and inputs checked against the live Clay connector).
 const CLAY = "Clay";
-const CLAY_TOOLS = ["search-companies", "search-contacts", "load-more-search-results", "add-contact-data-points", "get-task-context"];
+const CLAY_TOOLS = ["search-companies", "search-contacts", "load-more-search-results", "add-contact-data-points", "add-company-data-points", "get-task-context"];
+const RESEARCH_TYPES = ["Recent News", "Open Jobs", "Headcount Growth", "Latest Funding", "Annual Revenue", "Company Customers", "Company Competitors", "Tech Stack", "Website Traffic"];
 const STATUSES = ["new", "contacted", "qualified", "proposal", "won", "lost"];
 const NAME_RE = /^[a-z][a-z0-9_]{1,31}$/;
 const MAX_ROUNDS = 4;
@@ -532,7 +534,7 @@ function managerPrompt(history, message, results, round) {
     "",
     "How the company works:",
     S.clay === "available"
-      ? "- Bots granted find_leads can look up real companies and contacts in the owner's Clay account (it uses Clay credits). Other bots cannot browse the web. No bot can send anything."
+      ? "- Bots granted find_leads can look up real companies and contacts in the owner's Clay account; bots granted web_research can research companies on the live web through Clay (recent news, open jobs, growth, funding, custom questions with sources). Both use Clay credits. Other bots cannot browse the web. No bot can send anything."
       : "- Worker bots cannot browse the web or send anything. They work from their own knowledge, the owner's instructions and the lead book (CRM). Finding new leads needs the Clay connector, which is not connected: tell the owner to connect Clay in claude.ai Settings > Connectors, then hire a bot with find_leads.",
     "- Emails and texts that bots draft go to the owner's out-tray and are only sent if the owner approves them.",
     `- Bot tools: ${Object.entries(TOOLS).map(([k, v]) => `${k} (${v})`).join("; ")}.`,
@@ -612,7 +614,7 @@ async function hire(job, wanted, signal) {
     wanted ? `The Manager would like it named: ${wanted}` : "",
     `Names already taken: ${[...STAFF.map((p) => p.name), ...S.bots.map((b) => b.name)].join(", ")}`,
     `Tools you can grant (grant only what the job needs): ${Object.entries(TOOLS).map(([k, v]) => `${k}: ${v}`).join("; ")}.`,
-    "A bot whose job is finding leads needs find_leads together with crm_write so it can save what it finds. Only find_leads gives a bot access to real company and contact data (through Clay); without it bots cannot browse the web. No bot can send messages; drafted emails and texts wait for the owner's approval.",
+    "A bot whose job is finding leads needs find_leads together with crm_write so it can save what it finds. A bot that researches companies, news or market signals needs web_research (plus crm_write if it should record what it learns on leads). Only find_leads gives a bot access to real company and contact data (through Clay); without it bots cannot browse the web. No bot can send messages; drafted emails and texts wait for the owner's approval.",
     "Write the instructions in the second person: responsibilities, how to work, quality bar, tone for any messages, and limits (never invent contact details, respect consent and anti-spam rules, say what is missing instead of guessing).",
     feedback ? `Your previous design was rejected by validation: ${feedback}. Fix it.` : "",
     'Reply with ONLY a JSON object: {"name": "snake_case", "role": "one line", "instructions": "full instructions", "tools": ["crm_read", ...]}',
@@ -661,6 +663,8 @@ function slimClay(r) {
   if (companies.length) out.companies = companies.map((c) => ({
     entityId: c.entityId, name: c.name, domain: c.domain, website: c.website, industry: c.industry,
     size: c.size, location: c.locality, revenue: c.annual_revenue, about: short(c.description, 220),
+    ...((c.enrichments || []).length ? { research: c.enrichments.map((e) => ({
+      name: e.name, state: e.state, value: e.state === "completed" ? short(researchValue(e.value), 2500) || "(nothing found)" : undefined })) } : {}),
   }));
   const contacts = r?.contacts || [];
   if (contacts.length) out.contacts = contacts.map((p) => {
@@ -672,6 +676,17 @@ function slimClay(r) {
     };
   });
   return out;
+}
+// Research answers arrive as text or as JSON (sometimes JSON-encoded); flatten to readable text.
+function researchValue(v) {
+  if (v == null) return "";
+  let x = v;
+  if (typeof x === "string" && /^[\[{]/.test(x.trim())) { try { x = JSON.parse(x); } catch { /* keep the string */ } }
+  if (typeof x === "object") {
+    const vals = Object.values(x);
+    x = vals.length === 1 && typeof vals[0] === "string" ? vals[0] : JSON.stringify(x);
+  }
+  return String(x);
 }
 // A finished lookup arrives as {"Work Email": "a@b.com"} (sometimes JSON-encoded) or a plain address.
 function emailValue(v) {
@@ -695,7 +710,7 @@ const DSL_HELP = [
   'plus location_state = "New Jersey" or location_country = "United States". Combine with and/or and parentheses.',
   'Always add a limit (10-25) to save the owner\'s Clay credits.',
 ].join(" ");
-async function clayToolsFor(botName) {
+async function clayToolsFor(botName, kinds = { leads: true, research: false }) {
   if (!S.mcp || S.clay === "absent") return null;
   const limits = await S.sample.limits().catch(() => null);
   if (!limits?.tools) return null;
@@ -727,7 +742,26 @@ async function clayToolsFor(botName) {
       inputSchema: { type: "object", properties: { taskId: { type: "string" }, entityIds: { type: "array", items: { type: "string" } } }, required: ["taskId"] },
       execute: run("reading Clay results", (i, sig) => callClay("get-task-context", {
         taskId: String(i.taskId), ...(Array.isArray(i.entityIds) && i.entityIds.length ? { entityIds: i.entityIds.map(String) } : {}) }, sig)) },
-  ];
+    { name: "clay_research_companies", description: "Research companies from a clay_search_companies result on the live web (uses Clay credits). " +
+        "standard: any of " + RESEARCH_TYPES.join(", ") + ". questions: your own research questions, answered from the web with sources " +
+        "(e.g. \"Do they import ocean containers through the Port of NY/NJ? Cite sources.\"). Answers finish in the background, usually within a minute: read them with clay_read_results.",
+      inputSchema: { type: "object", properties: {
+        taskId: { type: "string", description: "taskId of the company search" },
+        entityIds: { type: "array", items: { type: "string" }, description: "Company entityIds to research (max 10)" },
+        standard: { type: "array", items: { type: "string", enum: RESEARCH_TYPES } },
+        questions: { type: "array", items: { type: "string" }, description: "Custom research questions (max 3)" } }, required: ["taskId", "entityIds"] },
+      execute: run("researching companies on the web", (i, sig) => {
+        const dataPoints = [
+          ...(Array.isArray(i.standard) ? i.standard : []).filter((t) => RESEARCH_TYPES.includes(t)).map((type) => ({ type })),
+          ...(Array.isArray(i.questions) ? i.questions : []).slice(0, 3).map((q, n) => ({ type: "Custom", dataPointName: short(q, 60) || `Question ${n + 1}`, dataPointDescription: String(q).slice(0, 1000) })),
+        ];
+        if (!dataPoints.length) dataPoints.push({ type: "Recent News" });
+        return callClay("add-company-data-points", { taskId: String(i.taskId), dataPoints, entityIds: (i.entityIds || []).map(String).slice(0, 10) }, sig);
+      }) },
+  ].filter((t) => ({
+    clay_search_companies: true, clay_load_more: true, clay_read_results: true,
+    clay_search_contacts: kinds.leads, clay_find_emails: kinds.leads, clay_research_companies: kinds.research,
+  })[t.name]);
 }
 function clayError(e) {
   switch (e?.code) {
@@ -867,7 +901,8 @@ async function delegate(name, task, signal) {
   const st = step(`${bot.name} is working…`);
   const canRead = tools.has("crm_read") || tools.has("crm_write");
   const clayTools = [
-    ...(tools.has("find_leads") ? (await clayToolsFor(bot.name)) || [] : []),
+    ...(tools.has("find_leads") || tools.has("web_research")
+      ? (await clayToolsFor(bot.name, { leads: tools.has("find_leads"), research: tools.has("web_research") })) || [] : []),
     ...(tools.has("airtable") ? airtableToolsFor(bot.name) : []),
   ];
   const shape = {
@@ -887,7 +922,8 @@ async function delegate(name, task, signal) {
       `Your instructions:\n${bot.instructions}`,
       `You can: ${[...tools].map((t) => TOOLS[t]).join("; ") || "only report back"}. You cannot send anything.`,
       clayTools.some((t) => t.name.startsWith("airtable_")) ? "Use the Airtable tools to look up leads the owner keeps in Airtable. Leads you add or update in the lead book are copied to Airtable automatically, so don't try to write to Airtable yourself." : "",
-      clayTools.some((t) => t.name.startsWith("clay_")) ? "Use the Clay tools to find real companies and the right people there (shipping, logistics, supply chain, operations or purchasing roles), then ask Clay for their emails and read the results. Only record companies, people and emails that Clay returned. Save every person you find as a lead even if the email is still pending: put their title and LinkedIn URL in notes, and set clay_task_id and clay_entity_id so the owner can fetch the email later. Keep searches focused (limit 10-25) to save Clay credits." : (tools.has("find_leads") ? "Your Clay lead search is not available right now (the Clay connector is not connected or was not allowed). Say so in your report and do not invent leads." : "You cannot browse the web."),
+      clayTools.some((t) => t.name === "clay_research_companies") ? "For research, find the companies with clay_search_companies, ask clay_research_companies for recent news, open jobs or your own questions, then read the answers with clay_read_results (call it again if they are still in-progress). Base claims only on what the research returned and mention the sources it gives. Research uses Clay credits: research at most 10 companies per task." : "",
+      clayTools.some((t) => t.name === "clay_search_contacts") ? "Use the Clay tools to find real companies and the right people there (shipping, logistics, supply chain, operations or purchasing roles), then ask Clay for their emails and read the results. Only record companies, people and emails that Clay returned. Save every person you find as a lead even if the email is still pending: put their title and LinkedIn URL in notes, and set clay_task_id and clay_entity_id so the owner can fetch the email later. Keep searches focused (limit 10-25) to save Clay credits." : (tools.has("find_leads") || tools.has("web_research") ? "Your Clay tools are not available right now (the Clay connector is not connected or was not allowed). Say so in your report and do not invent leads." : "You cannot browse the web."),
       canRead ? `Lead book (JSON): ${JSON.stringify(leadDigest())}` : "",
       `Task from the Manager:\n${task}`,
       "Do the task now. Never invent contact details: only use addresses and numbers given to you or already in the lead book. Leave lists empty when there is nothing to add.",
