@@ -18,7 +18,9 @@ You talk to the team from a **web app**, over **Telegram**, or in a terminal cha
                       │
                       ├──► hire_bot ──► Recruiter (designs bot) ──► CTO (model & tools) ──► HR (approve / reject) ──► roster
                       ├──► ask_cto ──► CTO (router status, free API hunt, model changes)
-                      └──► ask_app_dev ──► Android / iOS developers (phone apps per business)
+                      ├──► ask_app_dev ──► Android / iOS developers (phone apps per business)
+                      ├──► ask_scribe ──► Scribe (minutes, decision logs, summaries, documents)
+                      └──► ask_video_producer ──► Video Producer (animated text videos, MP4)
 ```
 
 ## Deploy (get your own link)
@@ -170,6 +172,23 @@ pointing there.
 Set `SALESBOT_PUBLIC_URL` (the https address phones use to reach the server) for app links and
 native projects.
 
+## Scribe and Video Producer
+
+Two more core staff:
+
+- **scribe** keeps the written record: minutes, decision logs, daily summaries, SOPs and briefs. It
+  writes from the recent chat and the task log (which bot did what, with results) and never invents
+  facts. Notes are in the web app's **Notes** tab (download as Markdown). Try: *"Have the scribe write
+  minutes of today's work."*
+- **video_producer** makes short videos from animated text scenes: promos, announcements, explainers
+  and social clips in 16:9, 9:16 (Reels/Shorts/TikTok) or 1:1. It writes the storyboard, a voice-over
+  script and a post caption, and renders an H.264 MP4 on the server with ffmpeg. Videos are in the
+  **Videos** tab. Try: *"Make a 20-second vertical video announcing our new service."*
+
+Rendering needs `ffmpeg` and the DejaVu fonts (`sudo apt install ffmpeg fonts-dejavu-core`; the Docker
+image includes them). Without them the storyboard is still saved and can be rendered later from the
+Videos tab.
+
 ## OpenClaw browser agent (optional)
 
 [OpenClaw](https://docs.openclaw.ai) (formerly Clawdbot) is a self-hosted agent with a real
@@ -255,8 +274,9 @@ refusal fallbacks.
 ```
 salesbot/
   agents/agent.py      one bot: system prompt + model + tools, runs the tool-calling loop
-  agents/team.py       Manager, HR, Recruiter, CTO, Android/iOS devs; hiring, delegation, approvals, chat memory
+  agents/team.py       Manager, HR, Recruiter, CTO, Android/iOS devs, Scribe, Video Producer; hiring, delegation, approvals, chat memory
   apps/                phone apps: icons, installable web app, Capacitor native projects
+  media/video.py       Video Producer storyboards rendered to MP4 with ffmpeg
   llm/                 provider-neutral gateway + Claude API / Claude Code CLI / OpenAI / xAI / Gemini
   tools/               web search & fetch, OpenClaw browsing, stock research, email, SMS, CRM
   research/            stock research engine (prices, SEC financials, technicals, breakout scan)

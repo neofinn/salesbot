@@ -105,19 +105,29 @@
       <button data-tab="pending">Approvals<span class="badge" id="pendingCount" hidden></span></button>
       <button data-tab="leads">Leads</button>
       <button data-tab="apps">Apps</button>
+      <button data-tab="notes">Notes</button>
+      <button data-tab="videos">Videos</button>
     </div>
     <div class="pane active" id="team">
       <form class="hire" id="hireForm">
         <input id="hireInput" placeholder="Job description for a new bot">
         <button>Hire</button>
       </form>
-      <div class="staff">Core staff: manager · hr · recruiter · cto · android_dev · ios_dev</div>
+      <div class="staff">Core staff: manager · hr · recruiter · cto · android_dev · ios_dev · scribe · video_producer</div>
       <div id="teamList"></div>
     </div>
     <div class="pane" id="pending"><div id="pendingList"></div></div>
     <div class="pane" id="apps">
       <div class="meta" style="margin-bottom:8px">Phone apps built by the Android and iOS developers, one per business. Ask the Manager, e.g. "Make an app for Lopez Bakery in orange".</div>
       <div id="appList"></div>
+    </div>
+    <div class="pane" id="notes">
+      <div class="meta" style="margin-bottom:8px">The Scribe's minutes, decision logs, summaries and documents. Ask the Manager, e.g. "Have the scribe write minutes of today's work".</div>
+      <div id="noteList"></div>
+    </div>
+    <div class="pane" id="videos">
+      <div class="meta" style="margin-bottom:8px">Videos made by the Video Producer. Ask the Manager, e.g. "Make a 20-second vertical video announcing our new service".</div>
+      <div id="videoList"></div>
     </div>
     <div class="pane" id="leads">
       <div class="hire"><input id="leadSearch" placeholder="Search leads"></div>
@@ -287,12 +297,59 @@ async function loadApps() {
   )) : [el("div", { className: "meta", textContent: "No apps yet." })]));
 }
 
+const day = (ts) => new Date(ts * 1000).toLocaleDateString();
+function delButton(path, reload) {
+  const b = el("button", { className: "ghost", textContent: "Delete" });
+  b.onclick = async () => {
+    if (b.dataset.armed) { await api(path, { method: "DELETE" }).catch((e) => alert(e.message)); return reload(); }
+    b.dataset.armed = "1"; b.textContent = "Confirm?";
+    setTimeout(() => { delete b.dataset.armed; b.textContent = "Delete"; }, 4000);
+  };
+  return b;
+}
+
+async function loadNotes() {
+  const notes = await api("/api/notes");
+  $("noteList").replaceChildren(...(notes.length ? notes.map((n, i) => {
+    const md = `# ${n.title}\n\n${n.body}\n`;
+    const dl = el("a", { href: URL.createObjectURL(new Blob([md], { type: "text/markdown" })), download: `${n.title.replace(/[^\w-]+/g, "-")}.md`, textContent: "Download .md" });
+    return el("details", { className: "card", open: i === 0 },
+      el("summary", { style: "cursor:pointer;font-weight:600", textContent: `${n.title} · ${day(n.updated_at)}` }),
+      el("div", { style: "white-space:pre-wrap;font-size:14px;margin:6px 0", textContent: n.body }),
+      el("div", { className: "row", style: "align-items:center" }, dl, delButton(`/api/notes/${n.id}`, loadNotes)));
+  }) : [el("div", { className: "meta", textContent: "No notes yet." })]));
+}
+
+async function loadVideos() {
+  const vids = await api("/api/videos");
+  $("videoList").replaceChildren(...(vids.length ? vids.map((v) => {
+    const secs = v.scenes.reduce((a, s) => a + s.seconds, 0);
+    let media;
+    if (v.file) {
+      media = el("video", { src: `/api/videos/${v.id}.mp4`, controls: true, preload: "metadata", style: `width:100%;max-width:${v.aspect === "9:16" ? 220 : 420}px;border-radius:8px;display:block` });
+    } else {
+      media = el("button", { textContent: "Render MP4" });
+      media.onclick = async () => { media.disabled = true; media.textContent = "Rendering…"; try { await api(`/api/videos/${v.id}/render`, { method: "POST" }); loadVideos(); } catch (e) { media.textContent = e.message; } };
+    }
+    return el("div", { className: "card" },
+      el("h3", { textContent: `${v.title} · ${v.aspect} · ${secs}s` }),
+      el("div", { style: "margin:6px 0" }, media),
+      el("div", { className: "row", style: "align-items:center" },
+        v.file ? el("a", { href: `/api/videos/${v.id}.mp4`, download: `${v.title}.mp4`, textContent: "Download MP4" }) : null,
+        delButton(`/api/videos/${v.id}`, loadVideos)),
+      v.narration ? el("details", { style: "font-size:13px;margin-top:6px" }, el("summary", { textContent: "Voice-over script" }), el("div", { style: "white-space:pre-wrap", textContent: v.narration })) : null,
+      v.caption ? el("details", { style: "font-size:13px" }, el("summary", { textContent: "Post caption" }), el("div", { style: "white-space:pre-wrap", textContent: v.caption })) : null);
+  }) : [el("div", { className: "meta", textContent: "No videos yet." })]));
+}
+
 function refresh() {
   loadStatus().catch(console.error);
   loadTeam().catch(console.error);
   loadPending().catch(console.error);
   loadLeads().catch(console.error);
   loadApps().catch(console.error);
+  loadNotes().catch(console.error);
+  loadVideos().catch(console.error);
 }
 
 document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => {

@@ -64,6 +64,20 @@ CREATE TABLE IF NOT EXISTS apps (
     spec TEXT NOT NULL,
     updated_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    author TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS videos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    spec TEXT NOT NULL,
+    file TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS chat_memory (
     chat_id TEXT PRIMARY KEY,
     summary TEXT NOT NULL,
@@ -153,6 +167,12 @@ class Store:
         await self.db.execute("UPDATE tasks SET result = ?, status = ? WHERE id = ?", (result, status, task_id))
         await self.db.commit()
 
+    async def recent_tasks(self, limit: int = 12) -> list[dict[str, Any]]:
+        async with self.db.execute(
+            "SELECT id, agent, task, result, status, created_at FROM tasks ORDER BY id DESC LIMIT ?", (limit,)
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
     # --- approval queue ---------------------------------------------------
 
     async def add_pending(self, kind: str, payload: dict[str, Any], requested_by: str) -> int:
@@ -230,6 +250,70 @@ class Store:
 
     async def delete_app(self, slug: str) -> bool:
         cur = await self.db.execute("DELETE FROM apps WHERE slug = ?", (slug,))
+        await self.db.commit()
+        return cur.rowcount > 0
+
+    # --- the Scribe's notes -------------------------------------------------------
+
+    async def save_note(self, title: str, body: str, author: str, note_id: int | None = None) -> int:
+        now = time.time()
+        if note_id is not None:
+            cur = await self.db.execute(
+                "UPDATE notes SET title = ?, body = ?, author = ?, updated_at = ? WHERE id = ?",
+                (title, body, author, now, note_id),
+            )
+            await self.db.commit()
+            if cur.rowcount == 0:
+                raise KeyError(note_id)
+            return note_id
+        cur = await self.db.execute(
+            "INSERT INTO notes (title, body, author, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            (title, body, author, now, now),
+        )
+        await self.db.commit()
+        return cur.lastrowid
+
+    async def get_note(self, note_id: int) -> dict[str, Any] | None:
+        async with self.db.execute("SELECT * FROM notes WHERE id = ?", (note_id,)) as cur:
+            row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def list_notes(self, limit: int = 100) -> list[dict[str, Any]]:
+        async with self.db.execute(
+            "SELECT id, title, author, created_at, updated_at, length(body) AS chars FROM notes "
+            "ORDER BY updated_at DESC LIMIT ?", (limit,)
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+    async def delete_note(self, note_id: int) -> bool:
+        cur = await self.db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+        await self.db.commit()
+        return cur.rowcount > 0
+
+    # --- the Video Producer's videos ------------------------------------------------
+
+    async def add_video(self, spec: dict[str, Any]) -> int:
+        cur = await self.db.execute(
+            "INSERT INTO videos (spec, created_at) VALUES (?, ?)", (json.dumps(spec), time.time())
+        )
+        await self.db.commit()
+        return cur.lastrowid
+
+    async def set_video_file(self, video_id: int, file: str) -> None:
+        await self.db.execute("UPDATE videos SET file = ? WHERE id = ?", (file, video_id))
+        await self.db.commit()
+
+    async def get_video(self, video_id: int) -> dict[str, Any] | None:
+        async with self.db.execute("SELECT * FROM videos WHERE id = ?", (video_id,)) as cur:
+            row = await cur.fetchone()
+        return _row_to_video(row) if row else None
+
+    async def list_videos(self, limit: int = 100) -> list[dict[str, Any]]:
+        async with self.db.execute("SELECT * FROM videos ORDER BY id DESC LIMIT ?", (limit,)) as cur:
+            return [_row_to_video(r) for r in await cur.fetchall()]
+
+    async def delete_video(self, video_id: int) -> bool:
+        cur = await self.db.execute("DELETE FROM videos WHERE id = ?", (video_id,))
         await self.db.commit()
         return cur.rowcount > 0
 
@@ -323,6 +407,10 @@ def _row_to_action(row: aiosqlite.Row) -> dict[str, Any]:
         "status": row["status"],
         "result": row["result"],
     }
+
+
+def _row_to_video(row: aiosqlite.Row) -> dict[str, Any]:
+    return {"id": row["id"], **json.loads(row["spec"]), "file": row["file"], "created_at": row["created_at"]}
 
 
 def spec_to_dict(spec: AgentSpec) -> dict[str, Any]:

@@ -1,10 +1,13 @@
-"""The bot company: a manager, HR, a recruiter, a CTO, Android and iOS developers, and the worker bots they hire."""
+"""The bot company: a manager, HR, a recruiter, a CTO, Android and iOS developers, a scribe, a video producer,
+and the worker bots they hire."""
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+import time
 from typing import Any
 
 from .. import connections
@@ -12,6 +15,7 @@ from ..config import Settings
 from ..apps import AppSpec, slugify
 from ..apps import validate as validate_app
 from ..llm import LLMError, LLMGateway, Message
+from ..media import video as videos
 from ..store import AgentSpec, Store
 from ..tools import CATALOG, Tool, ToolContext, ToolError, execute_action
 from ..tools.base import schema, string
@@ -19,7 +23,7 @@ from .agent import Agent
 
 log = logging.getLogger(__name__)
 
-STAFF = ("manager", "hr", "recruiter", "cto", "android_dev", "ios_dev")
+STAFF = ("manager", "hr", "recruiter", "cto", "android_dev", "ios_dev", "scribe", "video_producer")
 # Chat turns kept word for word; older ones are folded into the chat's long-term memory.
 RECENT_MESSAGES = 20
 MEMORY_BATCH = 6
@@ -39,6 +43,10 @@ lead generation, reporting and admin. The owner talks to you in chat. Your job:
   apps, e.g. a separate app for each of the owner's businesses.
 - Ask the CTO (ask_cto) about anything technical: which AI models are working or rate-limited, model
   choice and cost, connections and integrations, or when a bot fails for a technical reason.
+- Ask the Scribe (ask_scribe) to write things down: minutes of the day's work, decision logs, summaries,
+  SOPs and briefs. Notes are kept in the Notes tab.
+- Ask the Video Producer (ask_video_producer) for short videos: promos, announcements, explainers and
+  social clips (animated text scenes rendered to MP4, with a voice-over script and post caption).
 - Report back to the owner concisely: what was done, by whom, results, and anything awaiting their
   approval (emails and texts may be queued for approval; mention the action numbers).
 Check list_team before delegating or hiring. Do the work through the team, not yourself.
@@ -96,6 +104,25 @@ Merge the new turns into the current memory. Keep: the owner's goals, preference
 decisions made; facts, names and numbers that matter; work done and by which bot; open tasks and promises.
 Drop small talk and anything superseded. Write plain bullet points, newest state last. Reply with the memory only."""
 
+SCRIBE_PROMPT = """You are the Scribe of MyOps, a personal team of AI bot employees. You keep the team's written record:
+minutes, decision logs, daily summaries, SOPs, briefs and other documents.
+- Work only from the material you are given and what your tools return (recent chat, the task log with each
+  bot's results, existing notes). Never invent facts, numbers, decisions or names; if something is missing,
+  say so in the note.
+- Write clear Markdown: a short summary first, then headings and bullet points, with dates where known.
+- Save with write_note. To revise an existing note, read it and pass its note_id; otherwise create a new one.
+Reply with the note's title and id and a one-line summary."""
+
+VIDEO_PROMPT = """You are the Video Producer of MyOps, a personal team of AI bot employees. You make short videos from
+animated text scenes (no filmed footage): promos, explainers, announcements and social clips.
+- Plan 3 to 10 scenes. Each scene: a punchy headline (at most 8 words) and an optional sub line (at most 20
+  words), shown for 2 to 8 seconds. Open with a hook, end with a clear call to action.
+- Aspect: 16:9 for websites and YouTube, 9:16 for Reels, Shorts and TikTok, 1:1 for feeds.
+- Palette: hex colors bg, fg (strong contrast with bg) and accent.
+- Write a voice-over script matching the scenes, and a post caption with hashtags for social media.
+- Only state facts about the business from your brief; never invent prices, results, awards or testimonials.
+Render it with create_video and report the title, length and the link it returns."""
+
 HR_PROMPT = """You are HR for MyOps, a personal team of AI bot employees. You review candidate bots before they join the team.
 Approve with approve_hire only if: the role matches the job description, the system prompt is clear and
 safe (no deception, no spam, respects consent and anti-spam law), and the tools are the minimum the job
@@ -131,7 +158,7 @@ class Team:
         spec = AgentSpec(name=name, role=name, system_prompt=prompt, model=self.settings.default_model)
         return Agent(spec, tools, self.gateway, self.settings, self.store)
 
-    def manager(self, memory: str = "") -> Agent:
+    def manager(self, memory: str = "", chat_id: str = "") -> Agent:
         prompt = MANAGER_PROMPT
         if memory:
             prompt += ("\n\nLong-term memory of this chat (older turns, summarized; the recent turns follow as "
@@ -152,6 +179,19 @@ class Team:
                     "Ask the CTO a technical question (models, API router, connections, bot model changes) and get the answer.",
                     schema({"question": string("The question or request for the CTO")}, ["question"]),
                     self._tool_ask_cto,
+                ),
+                Tool(
+                    "ask_scribe",
+                    "Ask the Scribe to write or update a note: minutes, decision log, summary, SOP or brief.",
+                    schema({"request": string("What to write, for whom, and anything it must include")}, ["request"]),
+                    lambda args, ctx: self.ask_scribe(args["request"], chat_id),
+                ),
+                Tool(
+                    "ask_video_producer",
+                    "Ask the Video Producer to make a short video (animated text, MP4) and get its link.",
+                    schema({"request": string("The brief: purpose, audience, platform, length, key message, call to action")},
+                           ["request"]),
+                    self._tool_ask_video,
                 ),
                 Tool("list_team", "List the bots currently on the team.", schema({}), self._tool_list_team),
                 Tool(
@@ -221,6 +261,45 @@ class Team:
             ],
         )
 
+    def scribe(self) -> Agent:
+        return self._staff("scribe", SCRIBE_PROMPT, [
+            Tool("team_activity", "The latest tasks: which bot did what, with results.",
+                 schema({"limit": {"type": "integer", "description": "How many tasks (default 12, at most 50)"}}),
+                 self._tool_team_activity),
+            Tool("list_notes", "List the saved notes (id, title, last update).", schema({}), self._tool_list_notes),
+            Tool("read_note", "Read one note in full.", schema({"note_id": {"type": "integer"}}, ["note_id"]),
+                 self._tool_read_note),
+            Tool("write_note", "Save a note; pass note_id to update an existing one.", schema({
+                "title": string("Short title"), "body": string("The note in Markdown"),
+                "note_id": {"type": "integer", "description": "Optional: the note to update"},
+            }, ["title", "body"]), self._tool_write_note),
+        ])
+
+    def video_producer(self) -> Agent:
+        color = {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"}
+        return self._staff("video_producer", VIDEO_PROMPT, [
+            Tool("create_video", "Render a storyboard to an MP4 video and save it.", schema({
+                "title": string("Video title"),
+                "aspect": {"type": "string", "enum": list(videos.ASPECTS)},
+                "brand": string("Business name shown in the corner (optional)"),
+                "palette": {"type": "object", "properties": {"bg": color, "fg": color, "accent": color}},
+                "scenes": {"type": "array", "items": {"type": "object", "properties": {
+                    "headline": string("At most 8 words"), "sub": string("Optional, at most 20 words"),
+                    "seconds": {"type": "number", "minimum": 2, "maximum": 8}}, "required": ["headline"]}},
+                "narration": string("Voice-over script"), "caption": string("Post caption with hashtags"),
+            }, ["title", "aspect", "scenes"]), self._tool_create_video),
+            Tool("list_videos", "List the videos made so far.", schema({}), self._tool_list_videos),
+        ])
+
+    async def ask_scribe(self, request: str, chat_id: str = "") -> str:
+        chat = await self.store.recent_chat(chat_id, 20) if chat_id else []
+        transcript = "\n".join(f"{'Owner' if role == 'user' else 'Manager'}: {text[:1200]}" for role, text in chat)
+        brief = f"Request: {request}\n\nRecent chat with the owner:\n{transcript or '(none)'}"
+        return await self.scribe().run(brief)
+
+    def video_path(self, video_id: int) -> str:
+        return os.path.join(self.settings.data_dir, "videos", f"{video_id}.mp4")
+
     # --- public API used by chat front-ends --------------------------------
 
     async def handle(self, chat_id: str, text: str) -> str:
@@ -231,7 +310,7 @@ class Team:
         ]
         memory, _ = await self.store.get_memory(chat_id)
         try:
-            reply = await self.manager(memory).run(text, history)
+            reply = await self.manager(memory, chat_id).run(text, history)
         except LLMError as exc:
             reply = f"Configuration problem: {exc}"
         except Exception as exc:  # provider SDK errors: bad/missing key, network, rate limits
@@ -500,6 +579,66 @@ class Team:
         if platform not in ("android", "ios"):
             raise ToolError("platform must be android or ios")
         return await self.app_dev(platform).run(args["request"])
+
+    async def _tool_ask_video(self, args: dict[str, Any], ctx: ToolContext) -> str:
+        return await self.video_producer().run(args["request"])
+
+    # --- scribe and video producer tool handlers --------------------------------
+
+    async def _tool_team_activity(self, args: dict[str, Any], ctx: ToolContext) -> str:
+        limit = max(1, min(50, int(args.get("limit") or 12)))
+        rows = await self.store.recent_tasks(limit)
+        return json.dumps([{
+            "id": r["id"], "bot": r["agent"], "status": r["status"],
+            "when": time.strftime("%Y-%m-%d %H:%M", time.localtime(r["created_at"])),
+            "task": r["task"][:400], "result": (r["result"] or "")[:1200],
+        } for r in rows], indent=1) if rows else "No tasks yet."
+
+    async def _tool_list_notes(self, args: dict[str, Any], ctx: ToolContext) -> str:
+        notes = await self.store.list_notes(50)
+        return json.dumps([{"id": n["id"], "title": n["title"],
+                            "updated": time.strftime("%Y-%m-%d", time.localtime(n["updated_at"]))} for n in notes]) \
+            if notes else "No notes yet."
+
+    async def _tool_read_note(self, args: dict[str, Any], ctx: ToolContext) -> str:
+        note = await self.store.get_note(int(args["note_id"]))
+        if note is None:
+            raise ToolError(f"No note {args['note_id']}.")
+        return f"# {note['title']}\n\n{note['body']}"
+
+    async def _tool_write_note(self, args: dict[str, Any], ctx: ToolContext) -> str:
+        title, body = str(args.get("title", "")).strip()[:160], str(args.get("body", "")).strip()[:40000]
+        if not title or not body:
+            raise ToolError("A note needs a title and a body.")
+        note_id = args.get("note_id")
+        try:
+            saved = await self.store.save_note(title, body, ctx.agent_name, int(note_id) if note_id else None)
+        except KeyError as exc:
+            raise ToolError(f"No note {note_id}; leave note_id out to create one.") from exc
+        return f"{'Updated' if note_id else 'Saved'} note {saved}: {title}"
+
+    async def _tool_create_video(self, args: dict[str, Any], ctx: ToolContext) -> str:
+        spec = videos.from_dict(args)
+        bad = videos.problems(spec)
+        if bad:
+            raise ToolError("Video not made: " + "; ".join(bad))
+        brand = str(args.get("brand") or "").strip()[:60]
+        video_id = await self.store.add_video({**spec.to_dict(), "brand": brand})
+        path = self.video_path(video_id)
+        try:
+            await videos.render_mp4(spec, path, brand)
+        except RuntimeError as exc:
+            return (f"Saved storyboard {video_id} ({spec.title}) but could not render the MP4: {exc}. "
+                    "The scenes, narration and caption are in the Videos tab.")
+        await self.store.set_video_file(video_id, os.path.basename(path))
+        base = self.settings.public_url.rstrip("/")
+        return (f"Video {video_id} ready: {spec.title}, {len(spec.scenes)} scenes, {spec.duration:g}s, {spec.aspect}. "
+                f"Watch or download: {base}/api/videos/{video_id}.mp4 (also in the Videos tab).")
+
+    async def _tool_list_videos(self, args: dict[str, Any], ctx: ToolContext) -> str:
+        rows = await self.store.list_videos(30)
+        return json.dumps([{"id": v["id"], "title": v["title"], "aspect": v["aspect"],
+                            "rendered": bool(v["file"])} for v in rows]) if rows else "No videos yet."
 
     # --- app developer tool handlers ------------------------------------------
 
