@@ -1,4 +1,4 @@
-"""Entry point: `python -m salesbot web|telegram|chat`."""
+"""Entry point: `python -m salesbot web|telegram|chat|hunt`."""
 
 from __future__ import annotations
 
@@ -40,6 +40,22 @@ async def _chat(settings: Settings) -> None:
         await team.store.close()
 
 
+async def _hunt(settings: Settings) -> None:
+    """Run the free API hunter and print the router chain it builds."""
+    import json
+
+    from .llm.hunter import hunt
+
+    team = _make_team(settings)
+    await team.store.open()
+    await team.load_settings()
+    try:
+        result = await hunt(team.settings, team.gateway)
+    finally:
+        await team.store.close()
+    print(json.dumps(result, indent=2))
+
+
 def _telegram(settings: Settings) -> None:
     from .telegram_bot import build_application
 
@@ -55,11 +71,13 @@ def _web(settings: Settings) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="salesbot")
-    parser.add_argument("mode", nargs="?", default="telegram", choices=["web", "telegram", "chat"])
+    parser.add_argument("mode", nargs="?", default="telegram", choices=["web", "telegram", "chat", "hunt"])
     args = parser.parse_args()
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"), format="%(asctime)s %(name)s %(message)s")
     settings = Settings.from_env()
-    if args.mode == "chat":
+    if args.mode == "hunt":
+        asyncio.run(_hunt(settings))
+    elif args.mode == "chat":
         asyncio.run(_chat(settings))
     elif args.mode == "web":
         _web(settings)

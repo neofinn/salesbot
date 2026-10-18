@@ -29,7 +29,7 @@ def pick_default_model(settings: Settings) -> str:
         return f"anthropic:{settings.anthropic_model}"
     if shutil.which(_env("CLAUDE_CLI", "claude")):
         return "claude_code"
-    for provider in ("openrouter", "openai", "xai", "gemini"):
+    for provider in ("openrouter", "openai", "xai", "gemini", "groq"):
         if getattr(settings, f"{provider}_api_key"):
             return f"{provider}:{getattr(settings, f'{provider}_model')}"
     return Settings.default_model
@@ -46,6 +46,8 @@ class Settings:
     xai_model: str = "grok-4"
     gemini_model: str = "gemini-2.5-pro"
     openrouter_model: str = "openrouter/auto"
+    groq_model: str = "openai/gpt-oss-120b"
+    ollama_model: str = "qwen3.5:9b"
     # "default" lets the Claude Code CLI pick its own model.
     claude_code_model: str = "default"
 
@@ -54,6 +56,13 @@ class Settings:
     xai_api_key: str = ""
     gemini_api_key: str = ""
     openrouter_api_key: str = ""
+    groq_api_key: str = ""
+    # A local Ollama server (e.g. http://127.0.0.1:11434) for free self-hosted models such as Qwen.
+    ollama_url: str = ""
+    # API router: comma-separated model chain, tried in order. Empty = the free API hunter's chain.
+    router_models: str = ""
+    # "free": free models first, your paid accounts as fallback. "quality": the reverse.
+    router_prefer: str = "free"
 
     telegram_bot_token: str = ""
     # Only these Telegram user IDs may command the team. Empty = nobody.
@@ -100,12 +109,18 @@ class Settings:
             xai_model=_env("XAI_MODEL", cls.xai_model),
             gemini_model=_env("GEMINI_MODEL", cls.gemini_model),
             openrouter_model=_env("OPENROUTER_MODEL", cls.openrouter_model),
+            groq_model=_env("GROQ_MODEL", cls.groq_model),
+            ollama_model=_env("OLLAMA_MODEL", cls.ollama_model),
             claude_code_model=_env("CLAUDE_CODE_MODEL", cls.claude_code_model),
             anthropic_api_key=_env("ANTHROPIC_API_KEY"),
             openai_api_key=_env("OPENAI_API_KEY"),
             xai_api_key=_env("XAI_API_KEY"),
             gemini_api_key=_env("GEMINI_API_KEY"),
             openrouter_api_key=_env("OPENROUTER_API_KEY"),
+            groq_api_key=_env("GROQ_API_KEY"),
+            ollama_url=_env("OLLAMA_URL"),
+            router_models=_env("ROUTER_MODELS"),
+            router_prefer=_env("ROUTER_PREFER", "free").lower(),
             telegram_bot_token=_env("TELEGRAM_BOT_TOKEN"),
             telegram_allowed_user_ids=_env_list("TELEGRAM_ALLOWED_USER_IDS"),
             smtp_host=_env("SMTP_HOST"),

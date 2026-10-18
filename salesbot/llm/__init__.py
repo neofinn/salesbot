@@ -5,7 +5,7 @@ from __future__ import annotations
 from ..config import Settings
 from .base import LLMError, LLMResponse, Message, Provider, ToolCall, ToolResult, ToolSpec
 
-PROVIDERS = ("anthropic", "openai", "xai", "gemini", "openrouter", "claude_code")
+PROVIDERS = ("anthropic", "openai", "xai", "gemini", "openrouter", "groq", "ollama", "claude_code", "router")
 
 __all__ = [
     "PROVIDERS",
@@ -30,7 +30,8 @@ class LLMGateway:
     def reset(self, settings: Settings) -> None:
         """Use new settings; built-in provider clients are recreated on next use."""
         self.settings = settings
-        self._providers = {n: p for n, p in self._providers.items() if n not in PROVIDERS}
+        # The router keeps its cooldowns and stats across settings changes.
+        self._providers = {n: p for n, p in self._providers.items() if n not in PROVIDERS or n == "router"}
 
     def register(self, provider: Provider) -> None:
         """Install a provider instance (used by tests and custom backends)."""
@@ -42,7 +43,7 @@ class LLMGateway:
         provider = provider.strip().lower()
         if provider not in PROVIDERS and provider not in self._providers:
             raise LLMError(f"Unknown LLM provider {provider!r}. Use one of: {', '.join(PROVIDERS)}")
-        if not model:
+        if not model and provider != "router":
             model = getattr(self.settings, f"{provider}_model", "")
         return provider, model.strip()
 
@@ -53,7 +54,7 @@ class LLMGateway:
 
     def available(self) -> list[str]:
         """Providers that have credentials configured (or were registered)."""
-        found = set(self._providers)
+        found = {n for n in self._providers if n != "router"}
         # The staff already run on the default model, so its provider works
         # even when credentials come from elsewhere (e.g. an `ant auth` profile).
         found.add(self.settings.default_model.partition(":")[0].strip().lower())
@@ -73,6 +74,10 @@ class LLMGateway:
             from .claude_code_provider import cli_available
 
             return cli_available()
+        if name == "ollama":
+            return bool(self.settings.ollama_url)
+        if name == "router":
+            return bool(self.provider("router").chain())
         return bool(getattr(self.settings, f"{name}_api_key", ""))
 
     def _build(self, name: str) -> Provider:
@@ -87,6 +92,16 @@ class LLMGateway:
             if not cli_available():
                 raise LLMError("The claude CLI is not installed (needed for the claude_code provider).")
             return ClaudeCodeProvider()
+        if name == "router":
+            from .router import RouterProvider
+
+            return RouterProvider(self)
+        if name == "ollama":
+            from .openai_provider import OpenAICompatibleProvider
+
+            if not s.ollama_url:
+                raise LLMError("No Ollama server configured. Set OLLAMA_URL, e.g. http://127.0.0.1:11434.")
+            return OpenAICompatibleProvider("ollama", "ollama", base_url=s.ollama_url.rstrip("/") + "/v1")
         key = getattr(s, f"{name}_api_key", "")
         if not key:
             raise LLMError(f"No API key configured for {name}. Set {name.upper()}_API_KEY.")
@@ -102,6 +117,10 @@ class LLMGateway:
             from .openai_provider import OpenAICompatibleProvider
 
             return OpenAICompatibleProvider("openrouter", key, base_url="https://openrouter.ai/api/v1")
+        if name == "groq":
+            from .openai_provider import OpenAICompatibleProvider
+
+            return OpenAICompatibleProvider("groq", key, base_url="https://api.groq.com/openai/v1")
         if name == "gemini":
             from .gemini_provider import GeminiProvider
 

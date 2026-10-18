@@ -8,6 +8,7 @@ import hashlib
 import hmac
 import logging
 import secrets
+import time
 from contextlib import asynccontextmanager
 from importlib import resources
 from typing import Any
@@ -21,6 +22,7 @@ from .agents import Team
 from .commands import run_command
 from .connections import PROVIDER_LABELS
 from .llm import Message
+from .llm.hunter import hunt, load_hunt
 
 log = logging.getLogger(__name__)
 COOKIE = "salesbot_token"
@@ -55,11 +57,27 @@ class TestIn(BaseModel):
 def create_app(team: Team) -> FastAPI:
     token = team.settings.web_token
 
+    async def hunt_daily() -> None:
+        """Refresh the free API hunter's picks once a day while the router is in use."""
+        while True:
+            await asyncio.sleep(60)
+            last = load_hunt(team.settings).get("hunted_at")
+            if "router" in team.settings.default_model or not last:
+                try:
+                    stamp = time.mktime(time.strptime(last, "%Y-%m-%d %H:%M UTC")) if last else 0
+                    if time.time() - stamp > 86400:
+                        await hunt(team.settings, team.gateway)
+                except Exception:  # never let the background job take the app down
+                    logging.getLogger(__name__).exception("free API hunt failed")
+            await asyncio.sleep(3600)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         await team.store.open()
         await team.load_settings()
+        task = asyncio.create_task(hunt_daily())
         yield
+        task.cancel()
         await team.store.close()
 
     app = FastAPI(title="MyOps", lifespan=lifespan, docs_url=None, redoc_url=None)
@@ -201,6 +219,19 @@ def create_app(team: Team) -> FastAPI:
         except Exception as exc:  # report any provider failure to the UI
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:500]}
         return {"ok": True, "reply": resp.text[:200]}
+
+    # --- API router and free API hunter ---------------------------------------
+
+    @app.get("/api/router", dependencies=api)
+    async def router_status() -> dict[str, Any]:
+        hunted = load_hunt(team.settings)
+        return {**team.gateway.provider("router").status(), "hunt": hunted,
+                "explicit": bool(team.settings.router_models.strip()), "prefer": team.settings.router_prefer}
+
+    @app.post("/api/router/hunt", dependencies=api)
+    async def router_hunt() -> dict[str, Any]:
+        await hunt(team.settings, team.gateway)
+        return await router_status()
 
     @app.get("/connect/openrouter", dependencies=api)
     async def connect_openrouter(request: Request) -> Any:
