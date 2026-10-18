@@ -118,6 +118,34 @@ charge:
 OpenClaw runs with your computer's permissions. Keep its Gateway on localhost or a private
 network, install skills only from sources you trust, and keep sending behind approval.
 
+## Stock research
+
+`salesbot/research/` is a research engine for a stock-analysis team. It uses real data and needs
+no API keys:
+
+- **Prices:** daily bars from Yahoo Finance's chart API.
+- **Financials:** latest-quarter revenue, EPS and margins from the companies' own SEC EDGAR XBRL
+  filings.
+- **Technical analysis:**
+  - Stage-2 trend template: price above the 50, 150 and 200-day averages, with the 200-day rising.
+  - 52-week range, the 20-day base and its pivot, and base tightness.
+  - RSI, ATR, volume dry-up, and 6-month strength vs SPY.
+  - A breakout score and a stop idea.
+- **Fundamental analysis:** revenue and EPS growth year over year, revenue acceleration, margins,
+  and a stale-data guard.
+
+```bash
+python -m salesbot.research analyze NVDA                 # one stock, as JSON
+python -m salesbot.research scan --top 500 --limit 12    # stocks near a breakout among the 500 largest
+python -m salesbot.research scan --tickers AAPL,MSFT --report-doc report.json
+```
+
+Bots in the Python app can be given `stock_analyze` and `stock_screen`. In the claude.ai
+artifact, a scan saved with `--report-doc` goes into a profile's `reports` collection. It shows on
+the Reports tab, and bots with the `research_read` permission analyse its numbers. The page
+itself cannot fetch market data. SEC asks automated clients to identify themselves, so set
+`SEC_USER_AGENT` to "your-app your-email". Everything here is research, not financial advice.
+
 ## Safety defaults
 
 - **Approval queue:** with `SALESBOT_REQUIRE_APPROVAL=true` (the default), bots can only *queue*
@@ -158,7 +186,8 @@ salesbot/
   agents/agent.py      one bot: system prompt + model + tools, runs the tool-calling loop
   agents/team.py       Manager, HR, Recruiter; hiring, delegation, approvals
   llm/                 provider-neutral gateway + Claude API / Claude Code CLI / OpenAI / xAI / Gemini
-  tools/               web search & fetch, OpenClaw browsing, email, SMS, CRM
+  tools/               web search & fetch, OpenClaw browsing, stock research, email, SMS, CRM
+  research/            stock research engine (prices, SEC financials, technicals, breakout scan)
   store.py             SQLite persistence
   webapp.py, web/      web app (FastAPI + a single-page UI)
   telegram_bot.py      Telegram front-end

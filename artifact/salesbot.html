@@ -173,7 +173,7 @@ textarea, input, select {
 
 /* Right column */
 .subtabs { display: flex; gap: 2px; }
-.subtabs button { border: 0; background: none; padding: 2px 8px; border-radius: 6px; font-family: var(--display); font-weight: 700; font-size: 15px; color: var(--muted); }
+.subtabs button { border: 0; background: none; padding: 2px 6px; border-radius: 6px; font-family: var(--display); font-weight: 700; font-size: 14px; color: var(--muted); white-space: nowrap; }
 .subtabs button[aria-selected="true"] { color: var(--ink); background: var(--bubble); }
 .count { font-family: var(--mono); font-size: 11px; background: var(--accent); color: var(--accent-ink); border-radius: 99px; padding: 0 6px; margin-left: 4px; vertical-align: 2px; }
 .count[hidden] { display: none; }
@@ -266,12 +266,14 @@ textarea, input, select {
       <div class="subtabs" role="tablist">
         <button role="tab" data-sub="outbox" aria-selected="true">Out-tray<span class="count" id="outCount" hidden></span></button>
         <button role="tab" data-sub="tasks" aria-selected="false">Tasks</button>
+        <button role="tab" data-sub="reports" aria-selected="false">Reports</button>
         <button role="tab" data-sub="leads" aria-selected="false">Contacts</button>
       </div>
-      <span class="eyebrow" id="rightMeta"></span>
+      <span class="eyebrow" id="rightMeta" hidden></span>
     </div>
     <div class="scroll" id="sub-outbox"></div>
     <div class="scroll" id="sub-tasks" hidden></div>
+    <div class="scroll" id="sub-reports" hidden></div>
     <div class="scroll" id="sub-leads" hidden>
       <div class="filter"><input id="leadSearch" placeholder="Search contacts" aria-label="Search contacts"></div>
       <div class="filter" id="atButtons" hidden>
@@ -309,6 +311,7 @@ const TOOLS = {
   find_leads: "look up real companies and contacts (with emails and phones) in the owner's Clay account",
   web_research: "research companies on the live web through Clay: recent news, open jobs, growth, funding, and custom questions answered with sources",
   airtable: "search and read the owner's Airtable contact table (every contact in the contact book is also synced there automatically)",
+  research_read: "read the latest research reports: real market data (prices, technicals, SEC financials) from the MyOps research engine",
 };
 // Airtable: where leads sync to. Saved in this page's data (config/airtable) so it can be changed later.
 const AIRTABLE = "Airtable";
@@ -321,7 +324,7 @@ const NAME_RE = /^[a-z][a-z0-9_]{1,31}$/;
 const MAX_ROUNDS = 4;
 
 const S = {
-  bots: [], leads: [], outbox: [], chat: [], tasks: [],
+  bots: [], leads: [], outbox: [], chat: [], tasks: [], reports: [],
   profile: null, loaded: false, editingProfile: false, // who the open profile works for
   root: null, space: "main", spaces: [], unsubs: [], // all profiles, and the one open now
 
@@ -412,12 +415,13 @@ function openSpace(id) {
   S.unsubs = [];
   S.space = id;
   try { localStorage.setItem("myops.space", id); } catch { /* per-viewer convenience only */ }
-  Object.assign(S, { bots: [], tasks: [], leads: [], outbox: [], chat: [], profile: null, at: null, atNote: "", loaded: false, editingProfile: false });
+  Object.assign(S, { bots: [], tasks: [], leads: [], outbox: [], chat: [], reports: [], profile: null, at: null, atNote: "", loaded: false, editingProfile: false });
   S.store = scoped(S.root, id);
   const onErr = (e) => { if (e?.code !== "unavailable") setStatus("Live updates stopped. Reload the page.", true); };
   const sub = (c, fn) => S.unsubs.push(S.store.sub(c, fn, onErr));
   sub("bots", (rows) => { S.bots = rows; renderTeam(); });
   sub("tasks", (rows) => { S.tasks = rows; renderTasks(); });
+  sub("reports", (rows) => { S.reports = rows; renderReports(); });
   sub("leads", (rows) => { S.leads = rows; renderLeads(); });
   sub("config", (rows) => {
     const cfg = rows.find((r) => r.id === "airtable");
@@ -502,11 +506,12 @@ function renderChat() {
       el("h3", { textContent: S.profile ? `What should ${S.profile.company}'s team work on?` : "What should the team work on?" }),
       el("p", { textContent: "The Manager plans the work. If nobody fits, the Recruiter designs a new bot and HR reviews it before it starts. Every task lands on the Tasks board, and emails and texts wait in your out-tray for approval." }),
       el("div", { className: "suggest" }, [
+        S.reports.length ? "Have the analysts review the latest research report: the best 3 setups, with entry (pivot), stop, risk per share and what could go wrong." : null,
         "Who is on the team, and what can each bot do?",
         "Plan my week around my goals: what I should do each day, and what the team can take off my plate.",
         "Find 10 companies that match my ideal customer, with the right person at each, and add them as contacts.",
         "Research my five newest contacts (recent news and open jobs) and draft a short, personal intro email to each.",
-      ].map((t) => el("button", { type: "button", textContent: t, disabled: S.readOnly, onclick: () => send(t) }))),
+      ].filter(Boolean).map((t) => el("button", { type: "button", textContent: t, disabled: S.readOnly, onclick: () => send(t) }))),
     ));
   }
   log.replaceChildren(...nodes);
@@ -601,12 +606,43 @@ function renderOperation() {
 // The main profile stays in the list (empty); any other profile is removed from it.
 async function resetOperation() {
   const id = S.space;
-  for (const c of ["bots", "tasks", "leads", "outbox", "chat", "diagnostics"]) await S.store.clear(c);
+  for (const c of ["bots", "tasks", "leads", "outbox", "chat", "reports", "diagnostics"]) await S.store.clear(c);
   for (const doc of ["profile", "airtable"]) await S.store.del("config", doc).catch(() => {});
   await S.root.del("spaces", id).catch(() => {});
   showPane("pane-chat");
   openSpace(MAIN);
 }
+
+// Reports are written by the MyOps research engine (a cloud job with real market data), not by
+// the page: bots here cannot fetch prices, so they analyse what the latest report contains.
+const reportsByDate = () => [...S.reports].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+function renderReports() {
+  const items = reportsByDate();
+  $("sub-reports").replaceChildren(...(items.length ? items.slice(0, 10).map((r, i) => {
+    const body = el("div", {},
+      ...(r.items || []).map((x) => el("div", { className: "task" },
+        el("div", { className: "meta" },
+          el("span", { textContent: `${x.ticker} · ${x.name || ""}` }),
+          el("span", { className: `pill ${x.breaking_out ? "approved" : "pending"}`, textContent: `score ${x.score}` })),
+        el("div", { className: "brief", textContent: `$${x.price} · ${x.breaking_out ? "breaking out" : `${x.pct_below_pivot}% below pivot ${x.pivot}`}${x.stop ? ` · stop idea ${x.stop}` : ""} · RSI ${x.rsi}` }),
+        el("div", { className: "muted", style: "font-size:13px", textContent: (x.technical || []).join("; ") }),
+        x.fundamental?.length ? el("div", { className: "muted", style: "font-size:13px", textContent: `${x.quarter || ""}: ${x.fundamental.join("; ")}` }) : null,
+      )),
+      r.method ? el("details", { style: "font-size:12px;margin-top:6px" }, el("summary", { textContent: "Method" }), el("div", { className: "muted", textContent: r.method })) : null,
+      el("p", { className: "muted", style: "font-size:12px", textContent: r.disclaimer || "Research only, not financial advice." }),
+    );
+    const wrap = el("details", { open: i === 0 },
+      el("summary", { style: "cursor:pointer;font-weight:600", textContent: `${r.title || "Report"} · ${r.generated_at || new Date(r.createdAt || 0).toLocaleString()}` }), body);
+    return el("div", { style: "margin-bottom:12px" }, wrap);
+  }) : [el("p", { className: "muted", style: "font-size:13px", textContent: "Research reports appear here. They come from the MyOps research engine, which pulls real prices and SEC financials; ask in Claude Code for a new scan or schedule a daily one." })]));
+}
+const reportDigest = () => {
+  const r = reportsByDate()[0];
+  if (!r) return null;
+  return { title: r.title, generated_at: r.generated_at, universe: r.universe, method: r.method,
+    items: (r.items || []).map(({ ticker, name, score, price, pivot, pct_below_pivot, breaking_out, stop, rsi, technical, fundamental, quarter, metrics }) =>
+      ({ ticker, name, score, price, pivot, pct_below_pivot, breaking_out, stop, rsi, technical, fundamental, quarter, metrics })) };
+};
 
 function renderTasks() {
   const items = [...S.tasks].sort((a, b) => (b.n || 0) - (a.n || 0));
@@ -693,7 +729,7 @@ function fetchEmailButton(l) {
   return b;
 }
 
-function renderAll() { renderTeam(); renderConnections(); renderOperation(); renderChat(); renderOutbox(); renderTasks(); renderLeads(); syncCompose(); }
+function renderAll() { renderTeam(); renderConnections(); renderOperation(); renderChat(); renderOutbox(); renderTasks(); renderReports(); renderLeads(); syncCompose(); }
 
 function syncCompose() {
   $("sendBtn").hidden = S.busy; $("stopBtn").hidden = !S.busy;
@@ -769,6 +805,7 @@ function managerPrompt(history, message, results, round) {
     "- Hiring: the Recruiter designs the bot from your job description and HR approves or rejects it. Name the bot you want in snake_case.",
     "",
     `Team roster (worker bots): ${JSON.stringify(rosterDigest())}`,
+    S.reports.length ? `Research reports: ${S.reports.length}; the latest is "${reportDigest().title}" from ${reportDigest().generated_at} with ${reportDigest().items.length} stocks (${reportDigest().items.map((x) => x.ticker).join(", ")}). Bots granted research_read see its real numbers. No one on the team can fetch new market data: for stocks or dates not in a report, say a new research scan is needed (the owner runs it from Claude Code or a scheduled job).` : "",
     S.tasks.length ? `Recent tasks: ${JSON.stringify([...S.tasks].sort((a, b) => (b.n || 0) - (a.n || 0)).slice(0, 8).map((t) => ({ n: t.n, bot: t.bot, status: t.status, brief: short(t.brief, 140), report: short(t.report, 200) })))}` : "",
     `Contact book: ${S.leads.length} contacts${counts.length ? " (" + counts.map(([s, n]) => `${n} ${s}`).join(", ") + ")" : ""}. Out-tray: ${S.outbox.filter((d) => d.status === "pending").length} drafts awaiting approval.`,
     "",
@@ -844,7 +881,7 @@ async function hire(job, wanted, signal) {
     wanted ? `The Manager would like it named: ${wanted}` : "",
     `Names already taken: ${[...STAFF.map((p) => p.name), ...S.bots.map((b) => b.name)].join(", ")}`,
     `Tools you can grant (grant only what the job needs): ${Object.entries(TOOLS).map(([k, v]) => `${k}: ${v}`).join("; ")}.`,
-    "A bot whose job is finding leads needs find_leads together with crm_write so it can save what it finds. A bot that researches companies, news or market signals needs web_research (plus crm_write if it should record what it learns on leads). Only find_leads gives a bot access to real company and contact data (through Clay); without it bots cannot browse the web. No bot can send messages; drafted emails and texts wait for the owner's approval.",
+    "A bot that analyses stocks, markets or other research data needs research_read (it reads the real numbers in the latest research report; it cannot fetch prices itself). A bot whose job is finding leads needs find_leads together with crm_write so it can save what it finds. A bot that researches companies, news or market signals needs web_research (plus crm_write if it should record what it learns on leads). Only find_leads gives a bot access to real company and contact data (through Clay); without it bots cannot browse the web. No bot can send messages; drafted emails and texts wait for the owner's approval.",
     "Write the instructions in the second person: responsibilities, how to work, quality bar, tone for any messages, and limits (never invent contact details, respect consent and anti-spam rules, say what is missing instead of guessing).",
     feedback ? `Your previous design was rejected by validation: ${feedback}. Fix it.` : "",
     'Reply with ONLY a JSON object: {"name": "snake_case", "role": "one line", "instructions": "full instructions", "tools": ["crm_read", ...]}',
@@ -1217,6 +1254,8 @@ async function delegateWork(bot, task, signal) {
       clayTools.some((t) => t.name === "clay_research_companies") ? "For research, find the companies with clay_search_companies, ask clay_research_companies for recent news, open jobs or your own questions, then read the answers with clay_read_results (call it again if they are still in-progress). Base claims only on what the research returned and mention the sources it gives. Research uses Clay credits: research at most 10 companies per task." : "",
       clayTools.some((t) => t.name === "clay_search_contacts") ? "Use the Clay tools to find real companies that match the people the owner works with and the right decision-makers there, then ask Clay for their emails and read the results. Only record companies, people and emails that Clay returned. Save every person you find as a lead even if the email is still pending: put their title and LinkedIn URL in notes, and set clay_task_id and clay_entity_id so the owner can fetch the email later. Keep searches focused (limit 10-25) to save Clay credits." : (tools.has("find_leads") || tools.has("web_research") ? "Your Clay tools are not available right now (the Clay connector is not connected or was not allowed). Say so in your report and do not invent leads." : "You cannot browse the web."),
       canRead ? `Contact book (JSON): ${JSON.stringify(leadDigest())}` : "",
+      tools.has("research_read") && reportDigest() ? `Latest research report (real market data; use only these numbers, never invent prices or financials, and note the report date):\n${JSON.stringify(reportDigest())}` : "",
+      tools.has("research_read") && !reportDigest() ? "There is no research report yet: say so and do not invent market data." : "",
       `Task from the Manager:\n${task}`,
       "Do the task now. Never invent contact details: only use addresses and numbers given to you or already in the contact book. Leave lists empty when there is nothing to add.",
       `Reply with ONLY a JSON object in this shape: ${JSON.stringify(shape)}`,
@@ -1343,7 +1382,8 @@ $("atImportBtn").addEventListener("click", (e) => importFromAirtable(e.currentTa
 $("atSetupBtn").addEventListener("click", (e) => setupAirtable(e.currentTarget));
 document.querySelectorAll(".subtabs button").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll(".subtabs button").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
-  for (const k of ["outbox", "tasks", "leads"]) $(`sub-${k}`).hidden = b.dataset.sub !== k;
+  for (const k of ["outbox", "tasks", "reports", "leads"]) $(`sub-${k}`).hidden = b.dataset.sub !== k;
+  $("rightMeta").hidden = b.dataset.sub !== "leads";
 }));
 function showPane(id) {
   document.querySelectorAll(".tabs button").forEach((x) => x.setAttribute("aria-selected", String(x.dataset.pane === id)));
