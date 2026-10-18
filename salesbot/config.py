@@ -71,6 +71,12 @@ class Settings:
 
     brave_api_key: str = ""
 
+    # OpenClaw (formerly Clawdbot) Gateway with its OpenAI-compatible HTTP endpoint enabled.
+    openclaw_url: str = ""
+    openclaw_token: str = ""
+    openclaw_agent: str = "main"
+    openclaw_timeout: int = 300
+
     # Web app: a shared access token is required unless bound to localhost.
     web_token: str = ""
     web_host: str = "127.0.0.1"
@@ -111,6 +117,10 @@ class Settings:
             twilio_auth_token=_env("TWILIO_AUTH_TOKEN"),
             twilio_from_number=_env("TWILIO_FROM_NUMBER"),
             brave_api_key=_env("BRAVE_API_KEY"),
+            openclaw_url=_env("OPENCLAW_URL"),
+            openclaw_token=_env("OPENCLAW_TOKEN"),
+            openclaw_agent=_env("OPENCLAW_AGENT", cls.openclaw_agent),
+            openclaw_timeout=int(_env("OPENCLAW_TIMEOUT", "300")),
             web_token=_env("SALESBOT_WEB_TOKEN"),
             web_host=_env("SALESBOT_WEB_HOST", cls.web_host),
             web_port=int(_env("PORT", _env("SALESBOT_WEB_PORT", "8000"))),

@@ -93,6 +93,25 @@ Commands (web chat, Telegram and terminal chat):
 | `/approve <id>` / `/reject <id>` | Send or discard a queued email/text |
 | `/reset` | Clear the Manager's memory of this chat |
 
+## OpenClaw browser agent (optional)
+
+[OpenClaw](https://docs.openclaw.ai) (formerly Clawdbot) is a self-hosted agent with a real
+browser. Salesbot can hand it research while the Manager, HR and your approval queue stay in
+charge:
+
+- **Python app:** enable the Gateway's OpenAI-compatible endpoint
+  (`gateway.http.endpoints.chatCompletions.enabled: true`), then set the OpenClaw Gateway URL and
+  token in Connections (or `OPENCLAW_URL` / `OPENCLAW_TOKEN`). The Manager can then call
+  `openclaw_browse` itself, and the Recruiter can give it to hired bots. The task brief tells
+  OpenClaw to research only: no logins, purchases, posts or messages.
+- **claude.ai artifact:** the page can't reach a Gateway on your machine, so the two share the
+  Airtable lead table instead. Copy `integrations/openclaw/salesbot-leads/` into your OpenClaw
+  skills folder and set `AIRTABLE_TOKEN` and `SALESBOT_AIRTABLE_BASE`. OpenClaw adds the leads it
+  finds there, and "Import from Airtable" on the Leads tab brings them into the team.
+
+OpenClaw runs with your computer's permissions. Keep its Gateway on localhost or a private
+network, install skills only from sources you trust, and keep sending behind approval.
+
 ## Safety defaults
 
 - **Approval queue:** with `SALESBOT_REQUIRE_APPROVAL=true` (the default), bots can only *queue*
@@ -133,7 +152,7 @@ salesbot/
   agents/agent.py      one bot: system prompt + model + tools, runs the tool-calling loop
   agents/team.py       Manager, HR, Recruiter; hiring, delegation, approvals
   llm/                 provider-neutral gateway + Claude API / Claude Code CLI / OpenAI / xAI / Gemini
-  tools/               web search & fetch, email, SMS, CRM
+  tools/               web search & fetch, OpenClaw browsing, email, SMS, CRM
   store.py             SQLite persistence
   webapp.py, web/      web app (FastAPI + a single-page UI)
   telegram_bot.py      Telegram front-end

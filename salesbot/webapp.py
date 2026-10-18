@@ -158,6 +158,7 @@ def create_app(team: Team) -> FastAPI:
             "email": bool(s.smtp_host),
             "sms": bool(s.twilio_account_sid),
             "web_search": bool(s.brave_api_key),
+            "openclaw": bool(s.openclaw_url and s.openclaw_token),
         }
 
     # --- connections ----------------------------------------------------------
