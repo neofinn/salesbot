@@ -24,7 +24,7 @@ async def test_sends_task_to_gateway_and_returns_answer(monkeypatch):
     assert seen["url"] == "http://127.0.0.1:18789/v1/chat/completions"
     assert seen["headers"]["Authorization"] == "Bearer tok"
     assert seen["json"]["model"] == "openclaw:scout"
-    assert seen["json"]["user"] == "salesbot:researcher"
+    assert seen["json"]["user"] == "myops:researcher"
     assert seen["json"]["messages"][0]["role"] == "system" and "Research only" in seen["json"]["messages"][0]["content"]
     assert seen["json"]["messages"][1] == {"role": "user", "content": "What is new at Acme?"}
 

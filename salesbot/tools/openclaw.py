@@ -16,7 +16,7 @@ from .base import Tool, ToolContext, ToolError, schema, string
 
 MAX_ANSWER_CHARS = 12000
 
-BRIEF = """You are doing research for salesbot, an AI sales team, on behalf of your owner.
+BRIEF = """You are doing research for MyOps, your owner's personal team of AI bots.
 Use your browser and web tools to answer the task. Rules:
 - Research only: read and browse. Do not log in, buy, sign up, post, send messages or emails,
   fill in forms, or change any account or file.
@@ -33,7 +33,7 @@ async def _openclaw_browse(args: dict[str, Any], ctx: ToolContext) -> str:
         "model": f"openclaw:{s.openclaw_agent or 'main'}",
         "messages": [{"role": "system", "content": BRIEF}, {"role": "user", "content": args["task"]}],
         # The Gateway keeps one session per "user", so each bot gets its own browsing session.
-        "user": f"salesbot:{ctx.agent_name}",
+        "user": f"myops:{ctx.agent_name}",
     }
     try:
         async with httpx.AsyncClient(timeout=s.openclaw_timeout) as client:

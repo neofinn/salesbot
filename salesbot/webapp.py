@@ -30,13 +30,13 @@ OPENROUTER_KEYS = "https://openrouter.ai/api/v1/auth/keys"
 CHAT_ID = "web"
 
 LOGIN_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>salesbot</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>MyOps</title>
 <style>body{font:15px system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;
 background:#f6f7f9;color:#1b1f24}form{background:#fff;padding:28px;border-radius:12px;
 box-shadow:0 1px 3px #0002;display:grid;gap:12px;width:min(320px,90vw)}input,button{font:inherit;
 padding:10px;border-radius:8px;border:1px solid #ccd}button{background:#2457d6;color:#fff;border:0}
 p{color:#b42318;margin:0}</style></head><body><form method="post" action="/login">
-<h2 style="margin:0">salesbot</h2>{error}<input type="password" name="token" placeholder="Access token"
+<h2 style="margin:0">MyOps</h2>{error}<input type="password" name="token" placeholder="Access token"
 autofocus required><button>Sign in</button></form></body></html>"""
 
 
@@ -62,7 +62,7 @@ def create_app(team: Team) -> FastAPI:
         yield
         await team.store.close()
 
-    app = FastAPI(title="salesbot", lifespan=lifespan, docs_url=None, redoc_url=None)
+    app = FastAPI(title="MyOps", lifespan=lifespan, docs_url=None, redoc_url=None)
 
     def authorized(request: Request) -> bool:
         if not token:
