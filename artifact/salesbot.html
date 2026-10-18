@@ -765,16 +765,31 @@ const parseJson = (text) => {
   return JSON.parse(body);
 };
 
-// One structured call. If the standard model errors upstream, try once more on the fast model
-// with a plain call (parsed here), so one unavailable model doesn't stop the whole team.
+// One structured call, with recovery so one odd reply doesn't stop the whole team:
+// - a reply with prose around the JSON is parsed from its text;
+// - "invalid_json" (the model answered in plain text) is retried as a plain call asking for JSON only,
+//   first on the same model tier, then on the fast one;
+// - "upstream_error" on the standard model is retried once on the fast model.
+// Calls that use tools (Clay, Airtable) are not re-run, so no credits are spent twice.
 async function askJson(prompt, signal, tools) {
+  const plain = async (tier) => {
+    const { text } = await S.sample(prompt + "\n\nReply with ONLY the JSON object described above: no prose, no markdown fences.",
+      { signal, cache: false, modelTier: tier });
+    try { return parseJson(text); } catch { throw { code: "invalid_json", message: `the ${tier} model's reply was not JSON`, text }; }
+  };
   try {
     return await S.sample.json(prompt, tools ? { signal, cache: false, modelTier: S.tier, tools } : { signal, cache: false, modelTier: S.tier });
   } catch (e) {
-    if (e?.code !== "upstream_error" || S.tier === "quick" || tools) throw e;
+    if (e?.code === "cancelled" || e?.code === "not_granted" || e?.code === "rate_limited" || e?.code === "session_expired") throw e;
+    if (e?.text) { try { return parseJson(e.text); } catch { /* fall through to a retry */ } }
     S.lastError = errDetail(e);
-    const { text } = await S.sample(prompt + "\n\nReply with the JSON only.", { signal, cache: false, modelTier: "quick" });
-    try { return parseJson(text); } catch { throw { code: "invalid_json", message: "fast-model reply was not JSON", text }; }
+    if (tools) throw e;
+    if (e?.code === "invalid_json") {
+      try { return await plain(S.tier); } catch (e2) { if (e2?.code === "cancelled" || S.tier === "quick") throw e2; }
+      return plain("quick");
+    }
+    if (e?.code === "upstream_error" && S.tier !== "quick") return plain("quick");
+    throw e;
   }
 }
 
@@ -1366,7 +1381,7 @@ async function delegateWork(bot, task, signal) {
     did.push(`drafted ${kind} #${n} to ${draft.to}`);
   }
   st.done(`${bot.name} finished${did.length ? ": " + did.join(", ") : ""}`);
-  return `delegate to ${bot.name}: ${String(out?.report || "no report").slice(0, 1500)}${did.length ? " | Changes: " + did.join("; ") : ""}`;
+  return `delegate to ${bot.name}: ${String(out?.report || "no report").slice(0, 6000)}${did.length ? " | Changes: " + did.join("; ") : ""}`;
 }
 
 // ---------- Sending a message ---------------------------------------------------
