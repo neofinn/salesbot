@@ -172,7 +172,7 @@ textarea, input, select {
 .notice.bad { color: var(--bad); }
 
 /* Right column */
-.subtabs { display: flex; gap: 2px; }
+.subtabs { display: flex; gap: 2px; flex-wrap: wrap; }
 .subtabs button { border: 0; background: none; padding: 2px 6px; border-radius: 6px; font-family: var(--display); font-weight: 700; font-size: 14px; color: var(--muted); white-space: nowrap; }
 .subtabs button[aria-selected="true"] { color: var(--ink); background: var(--bubble); }
 .count { font-family: var(--mono); font-size: 11px; background: var(--accent); color: var(--accent-ink); border-radius: 99px; padding: 0 6px; margin-left: 4px; vertical-align: 2px; }
@@ -267,6 +267,8 @@ textarea, input, select {
         <button role="tab" data-sub="outbox" aria-selected="true">Out-tray<span class="count" id="outCount" hidden></span></button>
         <button role="tab" data-sub="tasks" aria-selected="false">Tasks</button>
         <button role="tab" data-sub="reports" aria-selected="false">Reports</button>
+        <button role="tab" data-sub="notes" aria-selected="false">Notes</button>
+        <button role="tab" data-sub="videos" aria-selected="false">Videos</button>
         <button role="tab" data-sub="leads" aria-selected="false">Contacts</button>
       </div>
       <span class="eyebrow" id="rightMeta" hidden></span>
@@ -274,6 +276,8 @@ textarea, input, select {
     <div class="scroll" id="sub-outbox"></div>
     <div class="scroll" id="sub-tasks" hidden></div>
     <div class="scroll" id="sub-reports" hidden></div>
+    <div class="scroll" id="sub-notes" hidden></div>
+    <div class="scroll" id="sub-videos" hidden></div>
     <div class="scroll" id="sub-leads" hidden>
       <div class="filter"><input id="leadSearch" placeholder="Search contacts" aria-label="Search contacts"></div>
       <div class="filter" id="atButtons" hidden>
@@ -303,6 +307,8 @@ const STAFF = [
   { name: "recruiter", title: "Recruiter", mark: "R", role: "Designs a new bot when no one on the team fits a job." },
   { name: "hr", title: "HR", mark: "H", role: "Reviews every candidate: right role, safe instructions, least access." },
   { name: "cto", title: "CTO", mark: "C", role: "Owns the tech: Claude models, connections and data; checks every hire's tools can actually work." },
+  { name: "scribe", title: "Scribe", mark: "S", role: "Keeps the record: minutes, decisions, summaries and documents, saved in Notes." },
+  { name: "video", title: "Video Producer", mark: "V", role: "Scripts and storyboards short videos, then renders them for you to download." },
 ];
 const TOOLS = {
   crm_read: "read the contact book (leads, clients and other contacts)",
@@ -325,7 +331,7 @@ const NAME_RE = /^[a-z][a-z0-9_]{1,31}$/;
 const MAX_ROUNDS = 4;
 
 const S = {
-  bots: [], leads: [], outbox: [], chat: [], tasks: [], reports: [],
+  bots: [], leads: [], outbox: [], chat: [], tasks: [], reports: [], notes: [], videos: [],
   profile: null, loaded: false, editingProfile: false, // who the open profile works for
   root: null, space: "main", spaces: [], unsubs: [], // all profiles, and the one open now
   memory: null, // the open profile's long-term chat memory (config/memory)
@@ -417,13 +423,15 @@ function openSpace(id) {
   S.unsubs = [];
   S.space = id;
   try { localStorage.setItem("myops.space", id); } catch { /* per-viewer convenience only */ }
-  Object.assign(S, { bots: [], tasks: [], leads: [], outbox: [], chat: [], reports: [], profile: null, memory: null, at: null, atNote: "", loaded: false, editingProfile: false });
+  Object.assign(S, { bots: [], tasks: [], leads: [], outbox: [], chat: [], reports: [], notes: [], videos: [], profile: null, memory: null, at: null, atNote: "", loaded: false, editingProfile: false });
   S.store = scoped(S.root, id);
   const onErr = (e) => { if (e?.code !== "unavailable") setStatus("Live updates stopped. Reload the page.", true); };
   const sub = (c, fn) => S.unsubs.push(S.store.sub(c, fn, onErr));
   sub("bots", (rows) => { S.bots = rows; renderTeam(); });
   sub("tasks", (rows) => { S.tasks = rows; renderTasks(); });
   sub("reports", (rows) => { S.reports = rows; renderReports(); });
+  sub("notes", (rows) => { S.notes = rows; renderNotes(); });
+  sub("videos", (rows) => { S.videos = rows; renderVideos(); });
   sub("leads", (rows) => { S.leads = rows; renderLeads(); });
   sub("config", (rows) => {
     const cfg = rows.find((r) => r.id === "airtable");
@@ -609,7 +617,7 @@ function renderOperation() {
 // The main profile stays in the list (empty); any other profile is removed from it.
 async function resetOperation() {
   const id = S.space;
-  for (const c of ["bots", "tasks", "leads", "outbox", "chat", "reports", "diagnostics"]) await S.store.clear(c);
+  for (const c of ["bots", "tasks", "leads", "outbox", "chat", "reports", "notes", "videos", "diagnostics"]) await S.store.clear(c);
   for (const doc of ["profile", "airtable", "memory"]) await S.store.del("config", doc).catch(() => {});
   await S.root.del("spaces", id).catch(() => {});
   showPane("pane-chat");
@@ -732,7 +740,7 @@ function fetchEmailButton(l) {
   return b;
 }
 
-function renderAll() { renderTeam(); renderConnections(); renderOperation(); renderChat(); renderOutbox(); renderTasks(); renderReports(); renderLeads(); syncCompose(); }
+function renderAll() { renderTeam(); renderConnections(); renderOperation(); renderChat(); renderOutbox(); renderTasks(); renderReports(); renderNotes(); renderVideos(); renderLeads(); syncCompose(); }
 
 function syncCompose() {
   $("sendBtn").hidden = S.busy; $("stopBtn").hidden = !S.busy;
@@ -821,6 +829,8 @@ function managerPrompt(history, message, results, round) {
     "- Emails and texts that bots draft go to the owner's out-tray and are only sent if the owner approves them.",
     `- Bot tools: ${Object.entries(TOOLS).map(([k, v]) => `${k} (${v})`).join("; ")}.`,
     "- Hiring: the Recruiter designs the bot from your job description, the CTO checks its tools can work with what is connected, and HR approves or rejects it. Name the bot you want in snake_case.",
+    "- The Scribe keeps the written record: minutes of what the team did, decision logs, summaries, SOPs, briefs and other documents, saved in the Notes tab. Use a scribe action, saying what to write; it reads the chat, tasks, reports and existing notes itself.",
+    "- The Video Producer scripts, storyboards and renders short videos (promos, explainers, social clips in 16:9, 9:16 or 1:1) that the owner downloads from the Videos tab. Use a make_video action with the brief: goal, audience, key message, length and format.",
     "- The CTO answers technical questions (which connections and data are live, why a bot's tool failed, what a job needs set up): use an ask_cto action.",
     "",
     `Team roster (worker bots): ${JSON.stringify(rosterDigest())}`,
@@ -835,7 +845,7 @@ function managerPrompt(history, message, results, round) {
     results.length ? "\nWhat happened with the actions you already took for this message:\n" + results.map((r, i) => `${i + 1}. ${r}`).join("\n") : "",
     "",
     "Reply with ONLY a JSON object:",
-    '{"reply": "your message to the owner", "actions": [ {"type": "hire", "name": "snake_case_name", "job": "job description"}, {"type": "delegate", "bot": "bot_name", "task": "complete, self-contained brief including every detail the bot needs (names, emails, tone)"}, {"type": "fire", "bot": "bot_name"}, {"type": "ask_cto", "question": "technical question"} ]}',
+    '{"reply": "your message to the owner", "actions": [ {"type": "hire", "name": "snake_case_name", "job": "job description"}, {"type": "delegate", "bot": "bot_name", "task": "complete, self-contained brief including every detail the bot needs (names, emails, tone)"}, {"type": "fire", "bot": "bot_name"}, {"type": "ask_cto", "question": "technical question"}, {"type": "scribe", "request": "what to write or update"}, {"type": "make_video", "request": "video brief"} ]}',
     "Actions run in order, so you may hire a bot and delegate to it in the same list. Delegate to a bot only if it is on the roster or hired earlier in the list.",
     "While actions remain, keep \"reply\" to one short line. When the work is finished, return \"actions\": [] and make \"reply\" your final report: what was done and by whom, the results, and draft numbers waiting in the out-tray. Plain text, no markdown headings.",
     round >= MAX_ROUNDS ? "This is your last round: \"actions\" must be []." : "",
@@ -867,6 +877,8 @@ async function runAction(a, signal) {
   if (type === "hire") return hire(String(a.job || ""), String(a.name || ""), signal);
   if (type === "delegate") return delegate(String(a.bot || ""), String(a.task || ""), signal);
   if (type === "ask_cto") return askCto(String(a.question || ""), signal);
+  if (type === "scribe") return scribeWrite(String(a.request || ""), signal);
+  if (type === "make_video") return produceVideo(String(a.request || ""), signal);
   if (type === "fire") {
     const bot = S.bots.find((b) => b.name === a.bot);
     if (!bot) return `fire ${a.bot}: no such bot.`;
@@ -876,6 +888,224 @@ async function runAction(a, signal) {
     return `fire ${bot.name}: retired.`;
   }
   return `Unknown action ${JSON.stringify(a).slice(0, 120)}: skipped.`;
+}
+
+// ---------- Scribe: the written record (notes collection) ----------------------------
+const byNewest = (rows) => [...rows].sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+async function scribeWrite(request, signal) {
+  if (!request) return "scribe: no request given.";
+  const st = step("Scribe is writing…");
+  const chat = [...S.chat].sort((a, b) => (a.at || 0) - (b.at || 0)).slice(-20)
+    .map((m) => `${m.role === "user" ? "Owner" : "Manager"} (${new Date(m.at || 0).toLocaleString()}): ${String(m.text).slice(0, 1200)}`).join("\n");
+  const tasks = [...S.tasks].sort((a, b) => (b.n || 0) - (a.n || 0)).slice(0, 12)
+    .map((t) => ({ n: t.n, bot: t.bot, status: t.status, when: new Date(t.createdAt || 0).toLocaleString(), brief: short(t.brief, 300), report: short(t.report, 900) }));
+  const notes = byNewest(S.notes).slice(0, 30).map((n) => ({ id: n.id, title: n.title, updated: new Date(n.updatedAt || 0).toLocaleDateString() }));
+  let out;
+  try {
+    out = await askJson([
+      `You are the Scribe of MyOps, ${orgName()}'s team of AI bot employees. You keep the written record: minutes, decision logs, summaries, SOPs, briefs and other documents.`,
+      `Who the team works for:\n${profileBrief()}`,
+      `Request: ${request}`,
+      `Recent chat:\n${chat || "(none)"}`,
+      `Recent tasks (JSON): ${JSON.stringify(tasks)}`,
+      reportDigest() ? `Latest research report: "${reportDigest().title}" ${reportDigest().generated_at}, ${reportDigest().items.length} items.` : "",
+      `Contacts: ${S.leads.length}. Drafts waiting for approval: ${S.outbox.filter((d) => d.status === "pending").length}.`,
+      `Existing notes (JSON): ${JSON.stringify(notes)}`,
+      "Write only from this material: never invent facts, numbers, decisions or names. If something needed is missing, say so in the note. Use clear Markdown: a short summary first, then headings and bullet points; dates where known. To revise an existing note, give its id in update_id; otherwise leave it empty.",
+      'Reply with ONLY a JSON object: {"title": "short title", "body": "the note in Markdown", "update_id": ""}',
+    ].filter(Boolean).join("\n\n"), signal);
+  } catch (e) { st.fail("Scribe couldn't finish"); if (e?.code === "cancelled") throw e; return `scribe failed (${errText(e)}).`; }
+  const title = String(out?.title || "Untitled note").slice(0, 160), body = String(out?.body || "").slice(0, 40000);
+  if (!body.trim()) { st.fail("Scribe returned an empty note"); return "scribe: the note came back empty."; }
+  const existing = S.notes.find((n) => n.id === out?.update_id);
+  const id = existing ? existing.id : shortId("n", new Set(S.notes.map((n) => n.id)));
+  const doc = { title, body, by: "scribe", request: request.slice(0, 500), createdAt: existing?.createdAt || Date.now(), updatedAt: Date.now() };
+  await S.store.set("notes", id, doc);
+  if (!S.notes.some((n) => n.id === id)) S.notes.push({ id, ...doc });
+  st.done(`Scribe ${existing ? "updated" : "wrote"} "${title}"`);
+  return `scribe: ${existing ? "updated" : "saved"} the note "${title}" in Notes (${body.length} characters).`;
+}
+function renderNotes() {
+  const items = byNewest(S.notes);
+  $("sub-notes").replaceChildren(...(items.length ? items.map((n, i) => {
+    const copy = el("button", { className: "btn ghost small", type: "button", textContent: "Copy" });
+    copy.onclick = async () => { try { await navigator.clipboard.writeText(`# ${n.title}\n\n${n.body}`); copy.textContent = "Copied"; } catch { copy.textContent = "Select and copy"; } setTimeout(() => (copy.textContent = "Copy"), 2000); };
+    const dl = el("button", { className: "btn ghost small", type: "button", textContent: "Download .md", hidden: !S.downloads });
+    dl.onclick = () => saveFile(`${slugText(n.title)}.md`, `# ${n.title}\n\n${n.body}\n`, dl);
+    const del = el("button", { className: "fire", type: "button", textContent: "Delete", hidden: S.readOnly });
+    del.onclick = async () => {
+      if (!del.classList.contains("armed")) { del.classList.add("armed"); del.textContent = "Confirm?"; setTimeout(() => { del.classList.remove("armed"); del.textContent = "Delete"; }, 4000); return; }
+      await S.store.del("notes", n.id).catch(showStoreError);
+    };
+    return el("details", { className: "task", open: i === 0 },
+      el("summary", { style: "cursor:pointer;font-weight:600", textContent: `${n.title} · ${new Date(n.updatedAt || n.createdAt || 0).toLocaleDateString()}` }),
+      el("div", { style: "white-space:pre-wrap;font-size:14px;margin:6px 0", textContent: n.body }),
+      el("div", { className: "row", style: "display:flex;gap:6px;align-items:center" }, copy, dl, del));
+  }) : [el("p", { className: "muted", style: "font-size:13px", textContent: "The Scribe's notes appear here: minutes, decision logs, summaries and documents. Try: \"Have the scribe write minutes of today's work.\"" })]));
+}
+
+// ---------- Video Producer: storyboard + in-browser renderer (videos collection) ----------
+const ASPECTS = { "16:9": [1280, 720], "9:16": [720, 1280], "1:1": [1080, 1080] };
+const HEX = /^#[0-9a-fA-F]{6}$/;
+function validateVideo(v) {
+  const scenes = (Array.isArray(v?.scenes) ? v.scenes : []).slice(0, 12).map((x) => ({
+    headline: String(x?.headline || "").slice(0, 90), sub: String(x?.sub || "").slice(0, 160),
+    seconds: Math.min(8, Math.max(2, Number(x?.seconds) || 4)),
+  })).filter((x) => x.headline);
+  const pal = v?.palette || {};
+  return {
+    title: String(v?.title || "Untitled video").slice(0, 120), aspect: ASPECTS[v?.aspect] ? v.aspect : "16:9",
+    palette: { bg: HEX.test(pal.bg) ? pal.bg : "#18212b", fg: HEX.test(pal.fg) ? pal.fg : "#ffffff", accent: HEX.test(pal.accent) ? pal.accent : "#d2551f" },
+    scenes, narration: String(v?.narration || "").slice(0, 6000), caption: String(v?.caption || "").slice(0, 2200),
+  };
+}
+async function produceVideo(request, signal) {
+  if (!request) return "make_video: no brief given.";
+  const st = step("Video Producer is scripting…");
+  let v;
+  try {
+    v = validateVideo(await askJson([
+      `You are the Video Producer of MyOps, ${orgName()}'s team of AI bot employees. You write short videos made of animated text scenes (no filmed footage): promos, explainers, announcements and social clips.`,
+      `Who the team works for:\n${profileBrief()}`,
+      `Brief: ${request}`,
+      "Plan 3 to 10 scenes. Each scene: a punchy headline (at most 8 words) and an optional sub line (at most 20 words), shown for 2 to 8 seconds. Open with a hook, end with a clear call to action. Pick the aspect: 16:9 for websites and YouTube, 9:16 for Reels, Shorts and TikTok, 1:1 for feeds. Pick a readable palette (hex colors: bg, fg with strong contrast, accent). Write a voice-over script matching the scenes, and a post caption with hashtags if it is for social media.",
+      "Only state facts about the business that appear above or in the brief; never invent prices, results, awards or testimonials.",
+      'Reply with ONLY a JSON object: {"title": "", "aspect": "16:9", "palette": {"bg": "#18212b", "fg": "#ffffff", "accent": "#d2551f"}, "scenes": [{"headline": "", "sub": "", "seconds": 4}], "narration": "", "caption": ""}',
+    ].join("\n\n"), signal));
+  } catch (e) { st.fail("Video Producer couldn't finish"); if (e?.code === "cancelled") throw e; return `make_video failed (${errText(e)}).`; }
+  if (!v.scenes.length) { st.fail("The storyboard had no scenes"); return "make_video: the storyboard came back without scenes."; }
+  const id = shortId("v", new Set(S.videos.map((x) => x.id)));
+  const doc = { ...v, request: request.slice(0, 500), createdAt: Date.now() };
+  await S.store.set("videos", id, doc);
+  if (!S.videos.some((x) => x.id === id)) S.videos.push({ id, ...doc });
+  const secs = v.scenes.reduce((a, x) => a + x.seconds, 0);
+  st.done(`Video Producer made "${v.title}" (${v.scenes.length} scenes, ${secs}s, ${v.aspect})`);
+  return `make_video: "${v.title}" is ready in the Videos tab: ${v.scenes.length} scenes, ${secs} seconds, ${v.aspect}. The owner can play it and download it as a video file; narration and caption are included.`;
+}
+
+function wrapLines(ctx, text, maxW) {
+  const words = String(text).split(/\s+/), lines = [];
+  let line = "";
+  for (const w of words) { const t = line ? line + " " + w : w; if (ctx.measureText(t).width > maxW && line) { lines.push(line); line = w; } else line = t; }
+  if (line) lines.push(line);
+  return lines;
+}
+const ease = (x) => 1 - Math.pow(1 - Math.min(1, Math.max(0, x)), 3);
+// Draws the video at time t (seconds): gradient background with drifting accent shapes,
+// headline and sub line easing in and out per scene, a progress bar and the business name.
+function drawVideoFrame(ctx, v, t) {
+  const [W, H] = ASPECTS[v.aspect], { bg, fg, accent } = v.palette;
+  const total = v.scenes.reduce((a, x) => a + x.seconds, 0);
+  let acc = 0, idx = 0;
+  while (idx < v.scenes.length - 1 && t >= acc + v.scenes[idx].seconds) { acc += v.scenes[idx].seconds; idx++; }
+  const sc = v.scenes[idx], lt = t - acc, p = lt / sc.seconds;
+  const g = ctx.createLinearGradient(0, 0, W, H);
+  g.addColorStop(0, bg); g.addColorStop(1, accent + "55");
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  for (let k = 0; k < 3; k++) {
+    const r = Math.min(W, H) * (0.18 + k * 0.08);
+    ctx.beginPath();
+    ctx.arc(W * (0.15 + 0.35 * k) + Math.sin(t * 0.4 + k) * W * 0.05, H * (0.8 - 0.3 * k) + Math.cos(t * 0.3 + k) * H * 0.04, r, 0, Math.PI * 2);
+    ctx.fillStyle = accent + "22"; ctx.fill();
+  }
+  const fadeIn = ease(lt / 0.5), fadeOut = 1 - ease((lt - (sc.seconds - 0.4)) / 0.4);
+  const alpha = Math.max(0, Math.min(fadeIn, fadeOut));
+  const pad = W * 0.08, maxW = W - pad * 2, big = Math.round(Math.min(W, H) * 0.085);
+  ctx.globalAlpha = alpha; ctx.fillStyle = fg; ctx.textBaseline = "top";
+  ctx.font = `700 ${big}px Inter, "Segoe UI", system-ui, sans-serif`;
+  const head = wrapLines(ctx, sc.headline, maxW);
+  ctx.font = `400 ${Math.round(big * 0.45)}px Inter, "Segoe UI", system-ui, sans-serif`;
+  const sub = sc.sub ? wrapLines(ctx, sc.sub, maxW) : [];
+  const blockH = head.length * big * 1.15 + (sub.length ? big * 0.5 + sub.length * big * 0.6 : 0);
+  let y = (H - blockH) / 2 + (1 - fadeIn) * big * 0.6;
+  ctx.fillStyle = accent; ctx.fillRect(pad, y - big * 0.45, big * 1.2, Math.max(4, big * 0.08));
+  ctx.fillStyle = fg; ctx.font = `700 ${big}px Inter, "Segoe UI", system-ui, sans-serif`;
+  for (const l of head) { ctx.fillText(l, pad, y); y += big * 1.15; }
+  if (sub.length) {
+    y += big * 0.5; ctx.globalAlpha = alpha * 0.85; ctx.font = `400 ${Math.round(big * 0.45)}px Inter, "Segoe UI", system-ui, sans-serif`;
+    for (const l of sub) { ctx.fillText(l, pad, y); y += big * 0.6; }
+  }
+  ctx.globalAlpha = 0.7; ctx.fillStyle = fg; ctx.font = `600 ${Math.round(big * 0.3)}px Inter, "Segoe UI", system-ui, sans-serif`;
+  ctx.fillText(S.profile?.company || "MyOps", pad, H - pad * 0.9);
+  ctx.globalAlpha = 1; ctx.fillStyle = fg + "33"; ctx.fillRect(0, H - 6, W, 6);
+  ctx.fillStyle = accent; ctx.fillRect(0, H - 6, W * Math.min(1, t / total), 6);
+  return { total, p };
+}
+function videoPlayer(v) {
+  const [W, H] = ASPECTS[v.aspect];
+  const canvas = el("canvas", { width: W, height: H, style: `width:100%;max-width:${v.aspect === "9:16" ? 220 : 420}px;border-radius:10px;display:block;background:${v.palette.bg}` });
+  const ctx = canvas.getContext("2d");
+  const total = v.scenes.reduce((a, x) => a + x.seconds, 0);
+  drawVideoFrame(ctx, v, 0.6);
+  let raf = 0;
+  const play = el("button", { className: "btn ghost small", type: "button", textContent: "▶ Play" });
+  const stop = () => { cancelAnimationFrame(raf); raf = 0; play.textContent = "▶ Play"; };
+  play.onclick = () => {
+    if (raf) return stop();
+    const t0 = performance.now(); play.textContent = "■ Stop";
+    const tick = () => { const t = (performance.now() - t0) / 1000; drawVideoFrame(ctx, v, Math.min(t, total)); if (t < total) raf = requestAnimationFrame(tick); else stop(); };
+    raf = requestAnimationFrame(tick);
+  };
+  const dl = el("button", { className: "btn ghost small", type: "button", textContent: "Render & download video", hidden: !S.downloads || typeof MediaRecorder === "undefined" });
+  dl.onclick = () => recordVideo(v, dl);
+  return { canvas, play, dl };
+}
+// Real-time recording of the canvas with MediaRecorder; the file is offered through the downloads capability.
+async function recordVideo(v, btn) {
+  const [W, H] = ASPECTS[v.aspect];
+  const total = v.scenes.reduce((a, x) => a + x.seconds, 0);
+  const canvas = el("canvas", { width: W, height: H });
+  const ctx = canvas.getContext("2d");
+  const type = ["video/mp4;codecs=avc1", "video/webm;codecs=vp9", "video/webm"].find((m) => MediaRecorder.isTypeSupported?.(m));
+  if (!type) { btn.textContent = "Video recording isn't supported in this browser"; return; }
+  const ext = type.startsWith("video/mp4") ? "mp4" : "webm";
+  btn.disabled = true;
+  const rec = new MediaRecorder(canvas.captureStream(30), { mimeType: type, videoBitsPerSecond: 4_000_000 });
+  const chunks = [];
+  rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  const done = new Promise((res) => (rec.onstop = res));
+  drawVideoFrame(ctx, v, 0);
+  rec.start(250);
+  const t0 = performance.now();
+  await new Promise((res) => {
+    const tick = () => {
+      const t = (performance.now() - t0) / 1000;
+      drawVideoFrame(ctx, v, Math.min(t, total));
+      btn.textContent = `Rendering… ${Math.min(100, Math.round((t / total) * 100))}%`;
+      if (t < total + 0.2) setTimeout(tick, 1000 / 30); else res();
+    };
+    tick();
+  });
+  rec.stop(); await done;
+  await saveFile(`${slugText(v.title)}.${ext}`, new Blob(chunks, { type }), btn, "Render & download video");
+}
+async function saveFile(filename, data, btn, label) {
+  const restore = label || btn.textContent;
+  if (!S.downloads) { btn.textContent = "Downloads aren't available here"; return; }
+  btn.disabled = true;
+  try { await S.downloads.save({ filename, data }); btn.textContent = "Saved"; }
+  catch (e) { btn.textContent = e?.code === "declined" ? "Not saved" : `Couldn't save (${e?.code || "error"})`; }
+  setTimeout(() => { btn.textContent = restore; btn.disabled = false; }, 2500);
+}
+const slugText = (t) => String(t || "file").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "file";
+function renderVideos() {
+  const items = byNewest(S.videos);
+  $("sub-videos").replaceChildren(...(items.length ? items.map((v, i) => {
+    const vid = validateVideo(v);
+    const { canvas, play, dl } = videoPlayer(vid);
+    const secs = vid.scenes.reduce((a, x) => a + x.seconds, 0);
+    const del = el("button", { className: "fire", type: "button", textContent: "Delete", hidden: S.readOnly });
+    del.onclick = async () => {
+      if (!del.classList.contains("armed")) { del.classList.add("armed"); del.textContent = "Confirm?"; setTimeout(() => { del.classList.remove("armed"); del.textContent = "Delete"; }, 4000); return; }
+      await S.store.del("videos", v.id).catch(showStoreError);
+    };
+    return el("details", { className: "task", open: i === 0 },
+      el("summary", { style: "cursor:pointer;font-weight:600", textContent: `${vid.title} · ${vid.aspect} · ${secs}s` }),
+      el("div", { style: "margin:8px 0" }, canvas),
+      el("div", { style: "display:flex;gap:6px;flex-wrap:wrap;align-items:center" }, play, dl, del),
+      vid.narration ? el("details", { style: "font-size:13px;margin-top:6px" }, el("summary", { textContent: "Voice-over script" }), el("div", { style: "white-space:pre-wrap", textContent: vid.narration })) : null,
+      vid.caption ? el("details", { style: "font-size:13px" }, el("summary", { textContent: "Post caption" }), el("div", { style: "white-space:pre-wrap", textContent: vid.caption })) : null);
+  }) : [el("p", { className: "muted", style: "font-size:13px", textContent: "Videos made by the Video Producer appear here: play them, then render and download the file. Try: \"Make a 20-second vertical video announcing our new service.\"" })]));
 }
 
 // CTO: the live technical picture, technical questions, and a tools check on every hire.
@@ -1486,7 +1716,7 @@ $("atImportBtn").addEventListener("click", (e) => importFromAirtable(e.currentTa
 $("atSetupBtn").addEventListener("click", (e) => setupAirtable(e.currentTarget));
 document.querySelectorAll(".subtabs button").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll(".subtabs button").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
-  for (const k of ["outbox", "tasks", "reports", "leads"]) $(`sub-${k}`).hidden = b.dataset.sub !== k;
+  for (const k of ["outbox", "tasks", "reports", "notes", "videos", "leads"]) $(`sub-${k}`).hidden = b.dataset.sub !== k;
   $("rightMeta").hidden = b.dataset.sub !== "leads";
 }));
 function showPane(id) {
@@ -1501,9 +1731,11 @@ S.store = scoped(S.root, MAIN);
 renderAll();
 (async () => {
   const claude = window.claude;
-  const [sample, db, user, mcp] = await Promise.all([
+  const [sample, db, user, mcp, downloads] = await Promise.all([
     claude?.use("sample") ?? null, claude?.use("db") ?? null, claude?.use("user") ?? null, claude?.use("mcp") ?? null,
+    claude?.use("downloads") ?? null,
   ]);
+  S.downloads = downloads;
   S.sample = sample; S.mcp = mcp;
   if (!mcp) S.clay = "absent";
   else mcp.listTools(CLAY).then((r) => { S.clay = r?.servers?.length && r.servers[0].tools?.length ? "available" : "absent"; renderConnections(); })

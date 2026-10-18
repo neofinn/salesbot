@@ -7,6 +7,7 @@ import base64
 import hashlib
 import hmac
 import logging
+import os
 import html
 import re
 import secrets
@@ -17,7 +18,7 @@ from typing import Any
 
 import httpx
 from fastapi import Body, Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
 from .agents import Team
@@ -29,6 +30,8 @@ from .commands import run_command
 from .connections import PROVIDER_LABELS
 from .llm import Message
 from .llm.hunter import hunt, load_hunt
+from .media.video import from_dict as video_from_dict
+from .media.video import render_mp4
 
 log = logging.getLogger(__name__)
 COOKIE = "salesbot_token"
@@ -265,6 +268,52 @@ def create_app(team: Team) -> FastAPI:
         except Exception as exc:  # report any provider failure to the UI
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:500]}
         return {"ok": True, "reply": resp.text[:200]}
+
+    # --- the Scribe's notes and the Video Producer's videos ----------------------
+
+    @app.get("/api/notes", dependencies=api)
+    async def list_notes() -> list[dict[str, Any]]:
+        return [await team.store.get_note(n["id"]) for n in await team.store.list_notes()]
+
+    @app.delete("/api/notes/{note_id}", dependencies=api)
+    async def delete_note(note_id: int) -> dict[str, bool]:
+        if not await team.store.delete_note(note_id):
+            raise HTTPException(status_code=404, detail="No such note")
+        return {"ok": True}
+
+    @app.get("/api/videos", dependencies=api)
+    async def list_videos() -> list[dict[str, Any]]:
+        return await team.store.list_videos()
+
+    @app.get("/api/videos/{video_id}.mp4", dependencies=api)
+    async def video_file(video_id: int) -> FileResponse:
+        video = await team.store.get_video(video_id)
+        path = team.video_path(video_id)
+        if video is None or not video["file"] or not os.path.exists(path):
+            raise HTTPException(status_code=404, detail="No rendered video")
+        return FileResponse(path, media_type="video/mp4")
+
+    @app.post("/api/videos/{video_id}/render", dependencies=api)
+    async def render_video(video_id: int) -> dict[str, Any]:
+        video = await team.store.get_video(video_id)
+        if video is None:
+            raise HTTPException(status_code=404, detail="No such video")
+        try:
+            await render_mp4(video_from_dict(video), team.video_path(video_id), video.get("brand", ""))
+        except RuntimeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        await team.store.set_video_file(video_id, f"{video_id}.mp4")
+        return await team.store.get_video(video_id)
+
+    @app.delete("/api/videos/{video_id}", dependencies=api)
+    async def delete_video(video_id: int) -> dict[str, bool]:
+        if not await team.store.delete_video(video_id):
+            raise HTTPException(status_code=404, detail="No such video")
+        try:
+            os.remove(team.video_path(video_id))
+        except FileNotFoundError:
+            pass
+        return {"ok": True}
 
     # --- API router and free API hunter ---------------------------------------
 
