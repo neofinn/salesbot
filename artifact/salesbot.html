@@ -1,10 +1,10 @@
-<title>Salesbot</title>
+<title>MyOps</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
 /* Layout: an office floor — roster of staff badges on the left, the Manager's desk (chat) in the middle,
-   the out-tray (drafts awaiting sign-off) and the lead book on the right. Phones get a tab bar. */
+   the out-tray (drafts awaiting sign-off), the task board and the contact book on the right. Phones get a tab bar. */
 :root {
   --bg: #eef0ec;
   --surface: #fbfbf8;
@@ -217,8 +217,8 @@ textarea, input, select {
 </style>
 
 <header class="top">
-  <h1>Sales<span>bot</span></h1>
-  <div class="tagline" id="tagline">Your AI operations team. Tell the Manager what you need; it hires bots through the Recruiter and HR, delegates the work, and queues every message for your sign-off.</div>
+  <h1>My<span>Ops</span></h1>
+  <div class="tagline" id="tagline">Your personal AI team. Tell the Manager what you need; it hires bots through the Recruiter and HR, delegates the work, and queues every message for your sign-off.</div>
   <div class="status" id="status">Starting…</div>
 </header>
 
@@ -238,11 +238,11 @@ textarea, input, select {
       <div class="badges" id="bots"></div>
       <div class="eyebrow section-label">Connections</div>
       <div id="connections"></div>
-      <div class="eyebrow section-label">Operation</div>
+      <div class="eyebrow section-label">Profile</div>
       <div id="operation"></div>
       <form class="hire-form" id="hireForm">
         <label class="eyebrow" for="hireInput">Hire directly</label>
-        <textarea id="hireInput" placeholder="Job description, e.g. Finds independent dental clinics and logs them as leads"></textarea>
+        <textarea id="hireInput" placeholder="Job description, e.g. Plans my week from my goals and drafts the emails it needs"></textarea>
         <button class="btn ghost small" id="hireBtn" type="submit">Send to Recruiter</button>
       </form>
     </div>
@@ -259,25 +259,25 @@ textarea, input, select {
     </form>
   </section>
 
-  <section class="pane" id="pane-right" aria-label="Out-tray and leads">
+  <section class="pane" id="pane-right" aria-label="Out-tray, tasks and contacts">
     <div class="head">
       <div class="subtabs" role="tablist">
         <button role="tab" data-sub="outbox" aria-selected="true">Out-tray<span class="count" id="outCount" hidden></span></button>
         <button role="tab" data-sub="tasks" aria-selected="false">Tasks</button>
-        <button role="tab" data-sub="leads" aria-selected="false">Leads</button>
+        <button role="tab" data-sub="leads" aria-selected="false">Contacts</button>
       </div>
       <span class="eyebrow" id="rightMeta"></span>
     </div>
     <div class="scroll" id="sub-outbox"></div>
     <div class="scroll" id="sub-tasks" hidden></div>
     <div class="scroll" id="sub-leads" hidden>
-      <div class="filter"><input id="leadSearch" placeholder="Search leads" aria-label="Search leads"></div>
+      <div class="filter"><input id="leadSearch" placeholder="Search contacts" aria-label="Search contacts"></div>
       <div class="filter" id="atButtons" hidden>
         <button class="btn ghost small" type="button" id="atSyncBtn">Sync to Airtable</button>
         <button class="btn ghost small" type="button" id="atImportBtn">Import from Airtable</button>
       </div>
       <div class="filter" id="atSetup" hidden>
-        <button class="btn ghost small" type="button" id="atSetupBtn">Create an Airtable lead table</button>
+        <button class="btn ghost small" type="button" id="atSetupBtn">Create an Airtable contact table</button>
       </div>
       <div id="leadList"></div>
     </div>
@@ -300,13 +300,13 @@ const STAFF = [
   { name: "hr", title: "HR", mark: "H", role: "Reviews every candidate: right role, safe instructions, least access." },
 ];
 const TOOLS = {
-  crm_read: "read the lead book",
-  crm_write: "add leads and update their status and notes",
+  crm_read: "read the contact book (leads, clients and other contacts)",
+  crm_write: "add contacts and update their status and notes",
   draft_email: "draft emails (they wait for the owner's approval)",
   draft_sms: "draft text messages (they wait for the owner's approval)",
   find_leads: "look up real companies and contacts (with emails and phones) in the owner's Clay account",
   web_research: "research companies on the live web through Clay: recent news, open jobs, growth, funding, and custom questions answered with sources",
-  airtable: "search and read the owner's Airtable lead table (every lead in the lead book is also synced there automatically)",
+  airtable: "search and read the owner's Airtable contact table (every contact in the contact book is also synced there automatically)",
 };
 // Airtable: where leads sync to. Saved in this page's data (config/airtable) so it can be changed later.
 const AIRTABLE = "Airtable";
@@ -320,7 +320,7 @@ const MAX_ROUNDS = 4;
 
 const S = {
   bots: [], leads: [], outbox: [], chat: [], tasks: [],
-  profile: null, loaded: false, editingProfile: false, // the business this copy of the page works for
+  profile: null, loaded: false, editingProfile: false, // who this copy of the page works for
 
   sample: null, store: null, readOnly: false, busy: false, ctl: null, tier: "default", lastError: "", mcp: null, clay: "checking", at: null, atState: "checking", atNote: "",
   live: null, // the in-progress manager turn: {steps: [{text, state}]}
@@ -367,17 +367,17 @@ const shortId = (prefix, taken) => {
   }
 };
 
-// ---------- The business ------------------------------------------------------
+// ---------- The owner -----------------------------------------------------------
 // Each copy of this page has its own data, so a fresh copy starts with no profile and asks for one.
-const orgName = () => S.profile?.company || "the company";
+const orgName = () => S.profile?.company || "the owner";
 function profileBrief() {
   const p = S.profile;
-  if (!p) return "The owner has not described their business yet: ask what they do before doing work that depends on it.";
+  if (!p) return "The owner has not introduced themselves yet: ask about them and their work before doing work that depends on it.";
   return [
-    `Company: ${p.company}`,
-    p.about && `What it does: ${p.about}`,
-    p.customers && `Customers and market: ${p.customers}`,
-    p.goals && `Current goals: ${p.goals}`,
+    `Owner or business: ${p.company}`,
+    p.about && `About them and their work: ${p.about}`,
+    p.customers && `People they work with (customers, clients, partners): ${p.customers}`,
+    p.goals && `Goals and what they want help with: ${p.goals}`,
     p.tone && `Voice for outgoing messages: ${p.tone}`,
   ].filter(Boolean).join("\n");
 }
@@ -429,9 +429,9 @@ function renderChat() {
       el("p", { textContent: "The Manager plans the work. If nobody fits, the Recruiter designs a new bot and HR reviews it before it starts. Every task lands on the Tasks board, and emails and texts wait in your out-tray for approval." }),
       el("div", { className: "suggest" }, [
         "Who is on the team, and what can each bot do?",
-        "Find 10 companies that match our ideal customer, with the right contact at each, and add them as leads.",
-        "Research our five newest leads (recent news and open jobs) and draft a short, personal intro email to each.",
-        "Write a weekly plan: what each bot should do this week to reach our goals.",
+        "Plan my week around my goals: what I should do each day, and what the team can take off my plate.",
+        "Find 10 companies that match my ideal customer, with the right person at each, and add them as contacts.",
+        "Research my five newest contacts (recent news and open jobs) and draft a short, personal intro email to each.",
       ].map((t) => el("button", { type: "button", textContent: t, disabled: S.readOnly, onclick: () => send(t) }))),
     ));
   }
@@ -460,18 +460,18 @@ function setupForm() {
     el(area ? "textarea" : "input", { name, placeholder, value: p[name] || "", required: !!required, maxLength: area ? 2000 : 200 }));
   const hire = el("input", { type: "checkbox", name: "hire", checked: true });
   const f = el("form", { className: "setup" },
-    el("h3", { textContent: editing ? "Business profile" : "Set up your operation" }),
+    el("h3", { textContent: editing ? "Your profile" : "Set up your team" }),
     el("p", { textContent: editing
       ? "Every bot reads this before it works. Changes apply to the next request."
-      : "This copy of Salesbot starts empty: no bots, leads or history. Describe the business it works for, and the Manager will build a team around it." }),
-    field("Company name", "company", "e.g. Bright Smile Dental Supply", false, true),
-    field("What you do", "about", "Products or services, what makes you different, where you operate", true, true),
-    field("Customers and market", "customers", "Who buys from you: industries, job titles of decision-makers, regions, company size", true),
-    field("Goals", "goals", "e.g. Book 10 discovery calls a month with clinic owners in Texas", true),
+      : "This copy of MyOps starts empty: no bots, contacts or history. Tell it who it works for and what you want help with, and the Manager will build a team around you." }),
+    field("Your name or business name", "company", "e.g. Maria Lopez, or Bright Smile Dental Supply", false, true),
+    field("About you and your work", "about", "What you do, your business if you have one, where you are based", true, true),
+    field("People you work with", "customers", "Customers, clients or partners: who they are, where, and who decides", true),
+    field("Goals and what you want help with", "goals", "e.g. Book 10 client calls a month, keep my inbox and week organised, research a move into a new market", true),
     field("Voice for emails and texts", "tone", "e.g. Friendly and brief, sign as Maria", false),
     editing || S.bots.length ? null : el("label", { className: "check" }, hire, "Let the Manager hire a starting team"),
     el("div", { className: "row" },
-      el("button", { className: "btn", type: "submit", textContent: editing ? "Save profile" : "Start operations" }),
+      el("button", { className: "btn", type: "submit", textContent: editing ? "Save profile" : "Start my team" }),
       editing ? el("button", { className: "btn ghost", type: "button", textContent: "Cancel", onclick: () => { S.editingProfile = false; renderChat(); } }) : null),
   );
   f.onsubmit = async (e) => {
@@ -485,7 +485,7 @@ function setupForm() {
     renderAll();
     await S.store.set("config", "profile", prof).catch(showStoreError);
     if (!editing && hire.checked && !S.bots.length) send(
-      `We're starting operations.${prof.goals ? ` Our first goal: ${prof.goals.replace(/[.!?]*$/, ".")}` : ""} Hire a starting team of 2 to 4 bots that fits our business and goals (only the tools each one needs), then tell me who is on the team and what to ask each of them.`);
+      `Let's set up my team.${prof.goals ? ` My goals: ${prof.goals.replace(/[.!?]*$/, ".")}` : ""} Hire a starting team of 2 to 4 bots that fits my work and goals (only the tools each one needs), then tell me who is on the team and what to ask each of them.`);
   };
   return f;
 }
@@ -496,26 +496,26 @@ function renderOperation() {
   const p = S.profile;
   const kids = [p
     ? el("div", {}, el("strong", { textContent: p.company }), el("div", { className: "muted", textContent: short(p.about, 160) }))
-    : el("div", { className: "muted", textContent: "Not set up yet. Describe your business in the Manager pane." })];
+    : el("div", { className: "muted", textContent: "Not set up yet. Introduce yourself in the Manager pane." })];
   if (!S.readOnly && S.loaded) {
     const edit = el("button", { className: "btn ghost small", type: "button", textContent: p ? "Edit profile" : "Set up",
       onclick: () => { S.editingProfile = true; showPane("pane-chat"); renderChat(); } });
-    const reset = el("button", { className: "btn ghost small", type: "button", textContent: "Start a new operation", disabled: S.busy });
+    const reset = el("button", { className: "btn ghost small", type: "button", textContent: "Start fresh", disabled: S.busy });
     reset.onclick = async () => {
       if (!reset.classList.contains("armed")) {
         reset.classList.add("armed"); reset.textContent = "Erase everything here?";
-        setTimeout(() => { reset.classList.remove("armed"); reset.textContent = "Start a new operation"; }, 5000);
+        setTimeout(() => { reset.classList.remove("armed"); reset.textContent = "Start fresh"; }, 5000);
         return;
       }
       reset.disabled = true; reset.textContent = "Clearing…";
       await resetOperation().catch(showStoreError);
     };
     kids.push(el("div", { className: "row" }, edit, p ? reset : null));
-    if (p) kids.push(el("div", { className: "muted", style: "font-size:12px", textContent: "A new operation erases this page's bots, tasks, leads, drafts and chat (rows already in Airtable stay there)." }));
+    if (p) kids.push(el("div", { className: "muted", style: "font-size:12px", textContent: "Starting fresh erases this page's bots, tasks, contacts, drafts and chat (rows already in Airtable stay there)." }));
   }
   box.replaceChildren(el("div", { className: "op" }, kids));
 }
-// Wipes this copy's data so it can serve a different business from a clean slate.
+// Wipes this copy's data so it can start over for someone or something new.
 async function resetOperation() {
   for (const c of ["bots", "tasks", "leads", "outbox", "chat", "diagnostics"]) await S.store.clear(c);
   for (const id of ["profile", "airtable"]) await S.store.del("config", id).catch(() => {});
@@ -575,7 +575,7 @@ function renderLeads() {
   const q = $("leadSearch").value.trim().toLowerCase();
   const leads = [...S.leads].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
     .filter((l) => !q || [l.name, l.company, l.email, l.phone, l.notes].join(" ").toLowerCase().includes(q));
-  $("rightMeta").textContent = `${S.leads.length} lead${S.leads.length === 1 ? "" : "s"}`;
+  $("rightMeta").textContent = `${S.leads.length} contact${S.leads.length === 1 ? "" : "s"}`;
   $("leadList").replaceChildren(...(leads.length ? leads.map((l) => {
     const sel = el("select", { "aria-label": `Status of ${l.name}`, disabled: S.readOnly },
       STATUSES.map((s) => el("option", { value: s, textContent: s, selected: s === l.status })));
@@ -588,7 +588,7 @@ function renderLeads() {
       !l.email && l.clayTask && l.clayEntity && S.mcp && !S.readOnly ? fetchEmailButton(l) : null,
       l.notes ? el("div", { className: "notes", textContent: l.notes }) : null,
     );
-  }) : [el("p", { className: "muted", style: "font-size:13px", textContent: S.leads.length ? "No leads match." : "No leads yet. Bots with CRM access add them here." })]));
+  }) : [el("p", { className: "muted", style: "font-size:13px", textContent: S.leads.length ? "No contacts match." : "No contacts yet. Bots with CRM access add them here, or import them from Airtable." })]));
 }
 
 // A lead found through Clay keeps its Clay search; this reads back the email once Clay has it.
@@ -619,7 +619,7 @@ function syncCompose() {
   $("hireForm").hidden = S.readOnly;
 }
 function notice(text, bad = false) { const n = $("chatNotice"); n.hidden = !text; n.textContent = text || ""; n.classList.toggle("bad", bad); }
-function showStoreError(e) { notice(e?.code === "quota_exceeded" ? "Storage is full: delete some leads or drafts." : `Couldn't save: ${e?.message || e}`, true); }
+function showStoreError(e) { notice(e?.code === "quota_exceeded" ? "Storage is full: delete some contacts or drafts." : `Couldn't save: ${e?.message || e}`, true); }
 
 // ---------- Calling Claude ---------------------------------------------------------
 const SAMPLE_ERRORS = {
@@ -629,7 +629,7 @@ const SAMPLE_ERRORS = {
   session_expired: "Your session expired. Sign in to claude.ai again.",
   refused: "Claude declined that request. Rephrase it and try again.",
   invalid_json: "A bot replied in an unexpected format. Send the request again.",
-  prompt_too_large: "There's too much to read at once. Clear some leads or start a shorter request.",
+  prompt_too_large: "There's too much to read at once. Clear some contacts or start a shorter request.",
   cancelled: "Stopped.",
 };
 const errText = (e) => SAMPLE_ERRORS[e?.code] || `Claude didn't answer (${e?.code || "error"}). Try again in a moment.`;
@@ -668,24 +668,24 @@ const rosterDigest = () => S.bots.map((b) => ({ name: b.name, role: b.role, tool
 function managerPrompt(history, message, results, round) {
   const counts = STATUSES.map((s) => [s, S.leads.filter((l) => l.status === s).length]).filter(([, n]) => n);
   return [
-    `You are the Manager of ${orgName()}'s operations team: a small company of AI bot employees that works for one owner.`,
+    `You are the Manager of MyOps, ${orgName()}'s personal team of AI bot employees. You work for one owner.`,
     "Your job: understand what the owner wants, delegate the work to bots on the team, hire a bot when nobody fits, retire bots that are no longer needed, and report back clearly.",
-    "The team can take on any business operation: sales and lead generation, research, marketing copy, customer follow-up, planning, reporting and admin.",
+    "The team handles the owner's work and personal operations: research, planning and scheduling, writing and email drafts, follow-ups, lead generation, reporting and admin.",
     "",
-    "The business you work for:",
+    "Who you work for:",
     profileBrief(),
     "",
-    "How the company works:",
+    "How the team works:",
     S.clay === "available"
       ? "- Bots granted find_leads can look up real companies and contacts in the owner's Clay account; bots granted web_research can research companies on the live web through Clay (recent news, open jobs, growth, funding, custom questions with sources). Both use Clay credits. Other bots cannot browse the web. No bot can send anything."
-      : "- Worker bots cannot browse the web or send anything. They work from their own knowledge, the owner's instructions and the lead book (CRM). Finding new leads needs the Clay connector, which is not connected: tell the owner to connect Clay in claude.ai Settings > Connectors, then hire a bot with find_leads.",
+      : "- Worker bots cannot browse the web or send anything. They work from their own knowledge, the owner's instructions and the contact book (CRM). Finding new leads needs the Clay connector, which is not connected: tell the owner to connect Clay in claude.ai Settings > Connectors, then hire a bot with find_leads.",
     "- Emails and texts that bots draft go to the owner's out-tray and are only sent if the owner approves them.",
     `- Bot tools: ${Object.entries(TOOLS).map(([k, v]) => `${k} (${v})`).join("; ")}.`,
     "- Hiring: the Recruiter designs the bot from your job description and HR approves or rejects it. Name the bot you want in snake_case.",
     "",
     `Team roster (worker bots): ${JSON.stringify(rosterDigest())}`,
     S.tasks.length ? `Recent tasks: ${JSON.stringify([...S.tasks].sort((a, b) => (b.n || 0) - (a.n || 0)).slice(0, 8).map((t) => ({ n: t.n, bot: t.bot, status: t.status, brief: short(t.brief, 140), report: short(t.report, 200) })))}` : "",
-    `Lead book: ${S.leads.length} leads${counts.length ? " (" + counts.map(([s, n]) => `${n} ${s}`).join(", ") + ")" : ""}. Out-tray: ${S.outbox.filter((d) => d.status === "pending").length} drafts awaiting approval.`,
+    `Contact book: ${S.leads.length} contacts${counts.length ? " (" + counts.map(([s, n]) => `${n} ${s}`).join(", ") + ")" : ""}. Out-tray: ${S.outbox.filter((d) => d.status === "pending").length} drafts awaiting approval.`,
     "",
     history.length ? "Recent conversation:\n" + history.map((m) => `${m.role === "user" ? "Owner" : "Manager"}: ${m.text}`).join("\n") : "",
     "",
@@ -753,8 +753,8 @@ async function hire(job, wanted, signal) {
   if (!job) return "hire: no job description given.";
   let st = step(`Recruiter is designing ${wanted || "a new bot"}…`);
   const recruiterPrompt = (feedback) => [
-    `You are the Recruiter on ${orgName()}'s team of AI bot employees. Design one new bot for this job.`,
-    `The business:\n${profileBrief()}`,
+    `You are the Recruiter on ${orgName()}'s MyOps team of AI bot employees. Design one new bot for this job.`,
+    `Who the team works for:\n${profileBrief()}`,
     `Job description from the Manager: ${job}`,
     wanted ? `The Manager would like it named: ${wanted}` : "",
     `Names already taken: ${[...STAFF.map((p) => p.name), ...S.bots.map((b) => b.name)].join(", ")}`,
@@ -781,7 +781,7 @@ async function hire(job, wanted, signal) {
   let verdict;
   try {
     verdict = await askJson([
-      `You are HR on ${orgName()}'s team of AI bot employees. Review this candidate bot before it joins the team.`,
+      `You are HR on ${orgName()}'s MyOps team of AI bot employees. Review this candidate bot before it joins the team.`,
       `Job description: ${job}`,
       `Candidate: ${JSON.stringify(spec)}`,
       "Approve only if: the role matches the job; the instructions are clear, honest and safe (no deception, no spam, respects consent and anti-spam law); and the tools are the minimum the job needs (drafting emails or texts must be justified by the job).",
@@ -919,7 +919,7 @@ function clayError(e) {
 
 // ---------- Airtable sync ----------------------------------------------------------
 // Every lead write in the page is mirrored to the owner's Airtable table, matched on the
-// "Salesbot ID" column so a lead synced twice updates its row instead of adding one.
+// ID column ("MyOps ID"; "Salesbot ID" in older tables) so a contact synced twice updates its row instead of adding one.
 const leadTitle = (l) => l.title || (String(l.notes || "").match(/Title:\s*([^.\n]+)/) || [])[1]?.trim() || "";
 const leadLinkedin = (l) => (l.linkedin || (String(l.notes || "").match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/[^\s,)]+/) || [])[0] || "").replace(/[.;:]+$/, "");
 function atRecord(l) {
@@ -943,7 +943,7 @@ async function syncLeads(leads) {
       });
     }
     S.atState = "available";
-    S.atNote = `Synced ${leads.length === 1 ? "1 lead" : leads.length + " leads"} at ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+    S.atNote = `Synced ${leads.length === 1 ? "1 contact" : leads.length + " contacts"} at ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
   } catch (e) {
     S.atNote = `Sync failed: ${atError(e)}`;
   }
@@ -991,7 +991,7 @@ async function importFromAirtable(btn) {
       await S.store.set("leads", id, lead);
       fresh.push({ id, ...lead, recordId: r.recordId });
     }
-    // Rows added straight to Airtable (for example by OpenClaw) have no Salesbot ID yet: write it
+    // Rows added straight to Airtable (for example by OpenClaw) have no MyOps ID yet: write it
     // into that same row so the next sync updates it instead of adding a copy.
     for (let i = 0; i < fresh.length; i += 50) {
       await S.mcp.callTool(AIRTABLE, "update_records_for_table", {
@@ -1004,11 +1004,11 @@ async function importFromAirtable(btn) {
   setTimeout(() => { btn.textContent = "Import from Airtable"; btn.disabled = false; }, 3000);
 }
 // A fresh copy has no Airtable table yet: this makes a new base with a Leads table in the
-// owner's first Airtable workspace, saves where it is, and syncs the lead book into it.
+// owner's first Airtable workspace, saves where it is, and syncs the contact book into it.
 const AT_FIELDS = [
   ["name", "Name", "singleLineText"], ["company", "Company", "singleLineText"], ["title", "Title", "singleLineText"],
   ["email", "Email", "email"], ["phone", "Phone", "phoneNumber"], ["status", "Status", "singleSelect"],
-  ["linkedin", "LinkedIn", "url"], ["notes", "Notes", "multilineText"], ["addedBy", "Added by", "singleLineText"], ["sid", "Salesbot ID", "singleLineText"],
+  ["linkedin", "LinkedIn", "url"], ["notes", "Notes", "multilineText"], ["addedBy", "Added by", "singleLineText"], ["sid", "MyOps ID", "singleLineText"],
 ];
 async function setupAirtable(btn) {
   btn.disabled = true; btn.textContent = "Creating the table…";
@@ -1016,9 +1016,9 @@ async function setupAirtable(btn) {
     const ws = (await S.mcp.callTool(AIRTABLE, "list_workspaces", {})).payload?.workspaces || [];
     const w = ws.find((x) => ["owner", "create"].includes(x.permissionLevel)) || ws[0];
     if (!w) throw { code: "tool_error", message: "No Airtable workspace found on this account." };
-    const baseName = `${orgName() === "the company" ? "Salesbot" : orgName()} CRM`.slice(0, 80);
+    const baseName = `${orgName() === "the owner" ? "MyOps" : orgName()} CRM`.slice(0, 80);
     const r = (await S.mcp.callTool(AIRTABLE, "create_base", { workspaceId: w.id, name: baseName, tables: [{
-      name: "Leads", description: "Leads managed by the Salesbot team. Salesbot ID links each row to the lead in the Salesbot page.",
+      name: "Leads", description: "Contacts managed by the MyOps team. MyOps ID links each row to the contact in the MyOps page.",
       fields: AT_FIELDS.map(([, name, type]) => type === "singleSelect"
         ? { name, type, options: { choices: STATUSES.map((c) => ({ name: c })) } } : { name, type }),
     }] })).payload;
@@ -1046,13 +1046,13 @@ function airtableToolsFor(botName) {
     catch (e) { st.fail(`${botName}: ${label} failed (${e?.code || "error"})`); throw new Error(atError(e)); }
   };
   return [
-    { name: "airtable_search_leads", description: "Free-text search of the owner's Airtable lead table (name, company, title, email, notes). Returns matching rows.",
+    { name: "airtable_search_leads", description: "Free-text search of the owner's Airtable contact table (name, company, title, email, notes). Returns matching rows.",
       inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
       execute: run("searching Airtable", async (i) => {
         const r = await S.mcp.callTool(AIRTABLE, "search_records", { baseId: S.at.baseId, table: S.at.tableId, query: String(i.query || ""), fields: "ALL_SEARCHABLE_FIELDS", limit: 50 });
         return (r.payload?.records || []).map(atPlain);
       }) },
-    { name: "airtable_list_leads", description: "List rows in the owner's Airtable lead table, optionally only one status (new, contacted, qualified, proposal, won, lost).",
+    { name: "airtable_list_leads", description: "List rows in the owner's Airtable contact table, optionally only one status (new, contacted, qualified, proposal, won, lost).",
       inputSchema: { type: "object", properties: { status: { type: "string" } } },
       execute: run("reading Airtable", async (i) => {
         const rows = await atList();
@@ -1077,7 +1077,7 @@ function renderConnections() {
         textContent: !S.at ? (S.atState === "absent" ? "Not connected" : "Not set up") : { checking: "Checking…", available: "Syncing", absent: "Not connected" }[S.atState] || "Unavailable" })),
     S.atNote ? el("p", { className: "muted", style: "font-size:12px;margin:4px 0 0", textContent: S.atNote }) : null,
     !S.at && S.atState === "available" && !S.readOnly ? el("p", { className: "muted", style: "font-size:12px;margin:4px 0 0",
-      textContent: "Open Leads and choose \"Create an Airtable lead table\" to keep a synced copy of your leads in Airtable." }) : null,
+      textContent: "Open Contacts and choose \"Create an Airtable contact table\" to keep a synced copy of your contacts in Airtable." }) : null,
   ].filter(Boolean));
 }
 
@@ -1124,16 +1124,16 @@ async function delegateWork(bot, task, signal) {
   let out;
   try {
     out = await askJson([
-      `You are ${bot.name}, a bot employee on ${orgName()}'s team. Your role: ${bot.role}.`,
-      `The business you work for:\n${profileBrief()}`,
+      `You are ${bot.name}, a bot employee on ${orgName()}'s MyOps team. Your role: ${bot.role}.`,
+      `Who you work for:\n${profileBrief()}`,
       `Your instructions:\n${bot.instructions}`,
       `You can: ${[...tools].map((t) => TOOLS[t]).join("; ") || "only report back"}. You cannot send anything.`,
-      clayTools.some((t) => t.name.startsWith("airtable_")) ? "Use the Airtable tools to look up leads the owner keeps in Airtable. Leads you add or update in the lead book are copied to Airtable automatically, so don't try to write to Airtable yourself." : "",
+      clayTools.some((t) => t.name.startsWith("airtable_")) ? "Use the Airtable tools to look up contacts the owner keeps in Airtable. Contacts you add or update in the contact book are copied to Airtable automatically, so don't try to write to Airtable yourself." : "",
       clayTools.some((t) => t.name === "clay_research_companies") ? "For research, find the companies with clay_search_companies, ask clay_research_companies for recent news, open jobs or your own questions, then read the answers with clay_read_results (call it again if they are still in-progress). Base claims only on what the research returned and mention the sources it gives. Research uses Clay credits: research at most 10 companies per task." : "",
-      clayTools.some((t) => t.name === "clay_search_contacts") ? "Use the Clay tools to find real companies that match the business's customers and the right decision-makers there, then ask Clay for their emails and read the results. Only record companies, people and emails that Clay returned. Save every person you find as a lead even if the email is still pending: put their title and LinkedIn URL in notes, and set clay_task_id and clay_entity_id so the owner can fetch the email later. Keep searches focused (limit 10-25) to save Clay credits." : (tools.has("find_leads") || tools.has("web_research") ? "Your Clay tools are not available right now (the Clay connector is not connected or was not allowed). Say so in your report and do not invent leads." : "You cannot browse the web."),
-      canRead ? `Lead book (JSON): ${JSON.stringify(leadDigest())}` : "",
+      clayTools.some((t) => t.name === "clay_search_contacts") ? "Use the Clay tools to find real companies that match the people the owner works with and the right decision-makers there, then ask Clay for their emails and read the results. Only record companies, people and emails that Clay returned. Save every person you find as a lead even if the email is still pending: put their title and LinkedIn URL in notes, and set clay_task_id and clay_entity_id so the owner can fetch the email later. Keep searches focused (limit 10-25) to save Clay credits." : (tools.has("find_leads") || tools.has("web_research") ? "Your Clay tools are not available right now (the Clay connector is not connected or was not allowed). Say so in your report and do not invent leads." : "You cannot browse the web."),
+      canRead ? `Contact book (JSON): ${JSON.stringify(leadDigest())}` : "",
       `Task from the Manager:\n${task}`,
-      "Do the task now. Never invent contact details: only use addresses and numbers given to you or already in the lead book. Leave lists empty when there is nothing to add.",
+      "Do the task now. Never invent contact details: only use addresses and numbers given to you or already in the contact book. Leave lists empty when there is nothing to add.",
       `Reply with ONLY a JSON object in this shape: ${JSON.stringify(shape)}`,
     ].filter(Boolean).join("\n\n"), signal, clayTools.length ? clayTools : null);
   } catch (e) { st.fail(`${bot.name} couldn't finish (${errDetail(e) || "no details"})`); if (e?.code === "cancelled") throw e; return `delegate to ${bot.name}: failed (${errText(e)}).`; }
@@ -1289,7 +1289,7 @@ renderAll();
     S.profile = prof && prof.company ? prof : null;
     S.loaded = true;
     $("tagline").textContent = S.profile
-      ? `${S.profile.company}'s AI operations team. Tell the Manager what you need; it hires bots through the Recruiter and HR, delegates the work, and queues every message for your sign-off.`
+      ? `MyOps for ${S.profile.company}: your personal AI team. Tell the Manager what you need; it hires bots through the Recruiter and HR, delegates the work, and queues every message for your sign-off.`
       : $("tagline").textContent;
     renderAirtableButtons(); renderConnections(); renderOperation(); renderChat();
   }, onErr);

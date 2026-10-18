@@ -1,9 +1,15 @@
-# salesbot
+# MyOps
 
-A company of AI bot employees that you run from a chat. You tell the **Manager** what you want;
+Your personal team of AI bot employees, run from a chat. It handles your work and personal
+operations: research, planning, writing and email drafts, follow-ups, lead generation, reporting
+and admin. You tell the **Manager** what you want;
 it delegates to bots on the team, and when nobody fits the job, the **Recruiter** designs a new
 bot and **HR** reviews it before it's hired. Each bot can run on a different LLM (Claude, GPT,
-Grok or Gemini) and is given only the tools its job needs: web search, email, SMS and a built-in CRM.
+Grok or Gemini) and is given only the tools its job needs: web search, OpenClaw browsing, email, SMS
+and a built-in contact book (CRM).
+
+The code lives in the `salesbot` Python package (the project's original name), so commands still
+read `python -m salesbot ...`.
 
 You talk to the team from a **web app**, over **Telegram**, or in a terminal chat, and it runs anywhere Docker runs.
 
@@ -96,7 +102,7 @@ Commands (web chat, Telegram and terminal chat):
 ## OpenClaw browser agent (optional)
 
 [OpenClaw](https://docs.openclaw.ai) (formerly Clawdbot) is a self-hosted agent with a real
-browser. Salesbot can hand it research while the Manager, HR and your approval queue stay in
+browser. MyOps can hand it research while the Manager, HR and your approval queue stay in
 charge:
 
 - **Python app:** enable the Gateway's OpenAI-compatible endpoint
@@ -105,9 +111,9 @@ charge:
   `openclaw_browse` itself, and the Recruiter can give it to hired bots. The task brief tells
   OpenClaw to research only: no logins, purchases, posts or messages.
 - **claude.ai artifact:** the page can't reach a Gateway on your machine, so the two share the
-  Airtable lead table instead. Copy `integrations/openclaw/salesbot-leads/` into your OpenClaw
-  skills folder and set `AIRTABLE_TOKEN` and `SALESBOT_AIRTABLE_BASE`. OpenClaw adds the leads it
-  finds there, and "Import from Airtable" on the Leads tab brings them into the team.
+  Airtable contact table instead. Copy `integrations/openclaw/myops-contacts/` into your OpenClaw
+  skills folder and set `AIRTABLE_TOKEN` and `MYOPS_AIRTABLE_BASE`. OpenClaw adds the contacts it
+  finds there, and "Import from Airtable" on the Contacts tab brings them into the team.
 
 OpenClaw runs with your computer's permissions. Keep its Gateway on localhost or a private
 network, install skills only from sources you trust, and keep sending behind approval.
@@ -137,7 +143,7 @@ Models are written as `<provider>:<model>` (or just `<provider>` for its default
 
 **No API key?** If `ANTHROPIC_API_KEY` is unset and the [Claude Code](https://code.claude.com) CLI is
 installed and signed in, salesbot defaults to `claude_code`. Each turn runs `claude -p` with Claude
-Code's own tools disabled; salesbot's tools are described in the prompt and called through a JSON
+Code's own tools disabled; MyOps's tools are described in the prompt and called through a JSON
 schema. It's slower than the API (a few seconds per turn), so for an always-on deployment prefer an
 API key. The Docker image doesn't include the CLI.
 

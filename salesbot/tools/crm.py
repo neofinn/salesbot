@@ -60,7 +60,7 @@ async def _export_leads(args: dict[str, Any], ctx: ToolContext) -> str:
 
 CRM_ADD_LEAD = Tool(
     "crm_add_lead",
-    "Add a new sales lead to the CRM.",
+    "Add a new contact or lead to the CRM.",
     schema(LEAD_PROPS, ["name"]),
     _add_lead,
 )
