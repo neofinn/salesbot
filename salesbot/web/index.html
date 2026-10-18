@@ -109,7 +109,7 @@
         <input id="hireInput" placeholder="Job description for a new bot">
         <button>Hire</button>
       </form>
-      <div class="staff">Core staff: manager · hr · recruiter</div>
+      <div class="staff">Core staff: manager · hr · recruiter · cto</div>
       <div id="teamList"></div>
     </div>
     <div class="pane" id="pending"><div id="pendingList"></div></div>
@@ -291,7 +291,7 @@ $("hireForm").addEventListener("submit", async (e) => {
   if (!job) return;
   $("hireInput").value = "";
   addMsg("user", `/hire ${job}`);
-  const wait = addMsg("assistant thinking", "Recruiter and HR are on it…");
+  const wait = addMsg("assistant thinking", "Recruiter, CTO and HR are on it…");
   try {
     const { result } = await api("/api/team/hire", { method: "POST", body: { job_description: job } });
     wait.remove(); addMsg("assistant", result);

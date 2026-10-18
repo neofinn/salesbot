@@ -1,7 +1,8 @@
-"""The bot company: a manager, HR, a recruiter, and the worker bots they hire."""
+"""The bot company: a manager, HR, a recruiter, a CTO, and the worker bots they hire."""
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Any
@@ -16,7 +17,11 @@ from .agent import Agent
 
 log = logging.getLogger(__name__)
 
-STAFF = ("manager", "hr", "recruiter")
+STAFF = ("manager", "hr", "recruiter", "cto")
+# Chat turns kept word for word; older ones are folded into the chat's long-term memory.
+RECENT_MESSAGES = 20
+MEMORY_BATCH = 6
+MEMORY_MAX_CHARS = 4000
 NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
 
 MANAGER_PROMPT = """You are the Manager of MyOps, a personal team of AI bot employees that works for one owner.
@@ -28,6 +33,8 @@ lead generation, reporting and admin. The owner talks to you in chat. Your job:
 - If no bot on the team fits the work, use hire_bot with a clear job description. The Recruiter will
   design the bot and HR will review it.
 - Retire bots the owner no longer needs with fire_bot.
+- Ask the CTO (ask_cto) about anything technical: which AI models are working or rate-limited, model
+  choice and cost, connections and integrations, or when a bot fails for a technical reason.
 - Report back to the owner concisely: what was done, by whom, results, and anything awaiting their
   approval (emails and texts may be queued for approval; mention the action numbers).
 Check list_team before delegating or hiring. Do the work through the team, not yourself.
@@ -44,6 +51,22 @@ a new bot and submit it with submit_candidate. Design:
 - tools: only the tools the job actually needs, from the catalog.
 If submit_candidate returns an error, fix the problem and submit again. Finish with a one-line summary."""
 
+CTO_PROMPT = """You are the CTO of MyOps, a personal team of AI bot employees. You own the technology:
+- The AI models: which providers are connected, the API router's chain (free models first, the owner's
+  own accounts as fallback), cooldowns and failures. Use system_status to see the live state.
+- Model choice for each bot: strong models (the owner's Claude account, paid APIs) for complex reasoning and
+  writing that matters; the router or a fast free model for routine, high-volume work. Change a bot's model
+  with set_bot_model, and check a model really works with test_model first.
+- When free models are failing or rate-limited, run run_api_hunt to refresh the router's chain.
+- In hiring, you review the technical side of each candidate (model and tools) before HR sees it.
+Be concrete and brief: say what you checked, what you changed and why. Never invent status: use your tools."""
+
+MEMORY_PROMPT = """You are the memory keeper of MyOps, a personal team of AI bot employees. You maintain a compact
+long-term memory of the owner's chat with the Manager, used by whichever AI model answers next.
+Merge the new turns into the current memory. Keep: the owner's goals, preferences and standing instructions;
+decisions made; facts, names and numbers that matter; work done and by which bot; open tasks and promises.
+Drop small talk and anything superseded. Write plain bullet points, newest state last. Reply with the memory only."""
+
 HR_PROMPT = """You are HR for MyOps, a personal team of AI bot employees. You review candidate bots before they join the team.
 Approve with approve_hire only if: the role matches the job description, the system prompt is clear and
 safe (no deception, no spam, respects consent and anti-spam law), and the tools are the minimum the job
@@ -57,6 +80,7 @@ class Team:
         self.settings = settings  # environment + values saved in the web app
         self.store = store
         self.gateway = gateway
+        self._memory_tasks: set = set()
 
     # --- connections --------------------------------------------------------
 
@@ -78,11 +102,21 @@ class Team:
         spec = AgentSpec(name=name, role=name, system_prompt=prompt, model=self.settings.default_model)
         return Agent(spec, tools, self.gateway, self.settings, self.store)
 
-    def manager(self) -> Agent:
+    def manager(self, memory: str = "") -> Agent:
+        prompt = MANAGER_PROMPT
+        if memory:
+            prompt += ("\n\nLong-term memory of this chat (older turns, summarized; the recent turns follow as "
+                       "messages):\n" + memory)
         return self._staff(
             "manager",
-            MANAGER_PROMPT,
+            prompt,
             [
+                Tool(
+                    "ask_cto",
+                    "Ask the CTO a technical question (models, API router, connections, bot model changes) and get the answer.",
+                    schema({"question": string("The question or request for the CTO")}, ["question"]),
+                    self._tool_ask_cto,
+                ),
                 Tool("list_team", "List the bots currently on the team.", schema({}), self._tool_list_team),
                 Tool(
                     "delegate_task",
@@ -112,16 +146,35 @@ class Team:
             ],
         )
 
+    def cto(self) -> Agent:
+        return self._staff(
+            "cto",
+            CTO_PROMPT,
+            [
+                Tool("system_status", "Live technical status: AI providers, the API router chain and cooldowns, "
+                     "the last free API hunt, and each bot's model.", schema({}), self._tool_system_status),
+                Tool("run_api_hunt", "Find free AI models again, test each one and rebuild the API router's chain.",
+                     schema({}), self._tool_run_hunt),
+                Tool("test_model", "Send a tiny tool-calling test to a model and report whether it works and how fast.",
+                     schema({"model": string('"<provider>:<model>", "<provider>" or "router"')}, ["model"]),
+                     self._tool_test_model),
+                Tool("set_bot_model", "Change which AI model a hired bot runs on.",
+                     schema({"bot_name": string("Bot name"), "model": string('"<provider>:<model>", "<provider>" or "router"')},
+                            ["bot_name", "model"]), self._tool_set_bot_model),
+            ],
+        )
+
     # --- public API used by chat front-ends --------------------------------
 
     async def handle(self, chat_id: str, text: str) -> str:
         """Process one message from the owner through the Manager."""
         history = [
             Message(role="user" if role == "user" else "assistant", text=t)
-            for role, t in await self.store.recent_chat(chat_id)
+            for role, t in await self.store.recent_chat(chat_id, RECENT_MESSAGES)
         ]
+        memory, _ = await self.store.get_memory(chat_id)
         try:
-            reply = await self.manager().run(text, history)
+            reply = await self.manager(memory).run(text, history)
         except LLMError as exc:
             reply = f"Configuration problem: {exc}"
         except Exception as exc:  # provider SDK errors: bad/missing key, network, rate limits
@@ -132,7 +185,30 @@ class Team:
             )
         await self.store.add_chat(chat_id, "user", text)
         await self.store.add_chat(chat_id, "assistant", reply)
+        await self.update_memory(chat_id)
         return reply
+
+    # --- long-term chat memory ------------------------------------------------
+
+    async def update_memory(self, chat_id: str) -> None:
+        """Fold chat turns that fall out of the recent window into the chat's rolling summary,
+        so the thread survives model switches, restarts and long conversations."""
+        summary, upto = await self.store.get_memory(chat_id)
+        rows = await self.store.chat_rows_after(chat_id, upto)
+        older = rows[:-RECENT_MESSAGES]
+        if len(older) < MEMORY_BATCH:
+            return
+        transcript = "\n".join(f"{'Owner' if role == 'user' else 'Manager'}: {text[:1500]}" for _, role, text in older)
+        try:
+            keeper = self._staff("memory", MEMORY_PROMPT, [])
+            new = await keeper.run(
+                f"Current memory:\n{summary or '(empty)'}\n\nNew turns to fold in:\n{transcript}\n\n"
+                f"Write the updated memory (at most {MEMORY_MAX_CHARS} characters)."
+            )
+        except Exception:  # the summary must never block the chat; fall back to an extract
+            log.warning("memory summary failed for %s; keeping an extract", chat_id, exc_info=True)
+            new = (summary + "\n" + transcript).strip()
+        await self.store.set_memory(chat_id, new.strip()[-MEMORY_MAX_CHARS:], older[-1][0])
 
     async def roster(self) -> list[AgentSpec]:
         return await self.store.list_agents()
@@ -209,6 +285,12 @@ class Team:
             return f"Recruiter could not produce a valid candidate. Notes: {recruiter_notes}"
         spec = candidate["spec"]
 
+        verdict = await self.cto_review(job_description, spec)
+        if not verdict.get("approved"):
+            return f"The CTO rejected {spec.name}: {verdict.get('reason') or 'no decision made'}"
+        if verdict.get("model") and verdict["model"] != spec.model:
+            spec.model = verdict["model"]
+
         async def approve_hire(args: dict[str, Any], ctx: ToolContext) -> str:
             decision.update(approved=True, reason=args.get("reason", ""))
             return "Hire approved."
@@ -238,6 +320,41 @@ class Team:
             f"Hired {spec.name} ({spec.role}) on {spec.model} with tools: {', '.join(spec.tools) or 'none'}. "
             f"HR: {decision.get('reason', '')}"
         )
+
+    async def cto_review(self, job_description: str, spec: AgentSpec) -> dict[str, Any]:
+        """The CTO checks a candidate's model and tools, and may move it to a better-suited model."""
+        verdict: dict[str, Any] = {}
+
+        async def tech_approve(args: dict[str, Any], ctx: ToolContext) -> str:
+            model = str(args.get("model") or spec.model).strip()
+            try:
+                provider, _ = self.gateway.resolve(model)
+            except LLMError as exc:
+                raise ToolError(str(exc)) from exc
+            if provider not in self.gateway.available():
+                raise ToolError(f"{provider!r} is not connected; pick one of: {', '.join(self.gateway.available())}")
+            verdict.update(approved=True, model=model, reason=args.get("notes", ""))
+            return f"Technically approved on {model}."
+
+        async def tech_reject(args: dict[str, Any], ctx: ToolContext) -> str:
+            verdict.update(approved=False, reason=args.get("reason", ""))
+            return "Technically rejected."
+
+        cto = self.cto()
+        cto.tools.update({
+            "tech_approve": Tool("tech_approve", "Approve the candidate's technical setup, optionally on a different model.",
+                                 schema({"model": string("Model to run on (keep the proposed one if it fits)"),
+                                         "notes": string("Short technical note")}, ["notes"]), tech_approve),
+            "tech_reject": Tool("tech_reject", "Reject: the job cannot work with the available models or tools.",
+                                schema({"reason": string("What is missing")}, ["reason"]), tech_reject),
+        })
+        await cto.run(
+            f"Technical review of a candidate bot. Call exactly one of tech_approve or tech_reject.\n"
+            f"Job description:\n{job_description}\n\nCandidate: name {spec.name}; role {spec.role}; "
+            f"proposed model {spec.model}; tools {', '.join(spec.tools) or '(none)'}.\n"
+            f"Connected providers: {', '.join(self.gateway.available())}. Default model: {self.settings.default_model}."
+        )
+        return verdict
 
     async def fire(self, bot_name: str) -> str:
         if bot_name in STAFF:
@@ -317,3 +434,48 @@ class Team:
 
     async def _tool_pending(self, args: dict[str, Any], ctx: ToolContext) -> str:
         return await self.pending_summary()
+
+    async def _tool_ask_cto(self, args: dict[str, Any], ctx: ToolContext) -> str:
+        return await self.cto().run(args["question"])
+
+    # --- CTO tool handlers ----------------------------------------------------
+
+    async def _tool_system_status(self, args: dict[str, Any], ctx: ToolContext) -> str:
+        from ..llm.hunter import load_hunt
+
+        router = self.gateway.provider("router").status()
+        hunted = load_hunt(self.settings)
+        bots = await self.roster()
+        return json.dumps({
+            "default_model": self.settings.default_model,
+            "providers_connected": self.gateway.available(),
+            "router_chain": router["chain"],
+            "router_prefer": self.settings.router_prefer,
+            "last_hunt": {k: hunted.get(k) for k in ("hunted_at", "notes")} | {
+                "rejected": [{"model": c["model"], "error": c.get("error")} for c in hunted.get("rejected", [])]},
+            "bots": [{"name": b.name, "model": b.model} for b in bots],
+        }, indent=1)
+
+    async def _tool_run_hunt(self, args: dict[str, Any], ctx: ToolContext) -> str:
+        from ..llm.hunter import hunt
+
+        result = await hunt(self.settings, self.gateway)
+        chain = ", ".join(f"{c['model']} ({c.get('latency_s')}s)" for c in result["chain"]) or "no working models"
+        return f"Router chain: {chain}. Rejected: {len(result['rejected'])}. Notes: {' '.join(result['notes'])}"
+
+    async def _tool_test_model(self, args: dict[str, Any], ctx: ToolContext) -> str:
+        from ..llm.hunter import probe
+
+        return json.dumps(await probe(self.gateway, str(args["model"]).strip()))
+
+    async def _tool_set_bot_model(self, args: dict[str, Any], ctx: ToolContext) -> str:
+        name, model = str(args["bot_name"]).strip(), str(args["model"]).strip()
+        try:
+            provider, _ = self.gateway.resolve(model)
+        except LLMError as exc:
+            raise ToolError(str(exc)) from exc
+        if provider not in self.gateway.available():
+            raise ToolError(f"{provider!r} is not connected.")
+        if not await self.store.set_agent_model(name, model):
+            raise ToolError(f"No active bot named {name!r}.")
+        return f"{name} now runs on {model}."

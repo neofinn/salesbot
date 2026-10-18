@@ -31,6 +31,7 @@ async def test_hire_then_delegate_end_to_end(team, fake):
         ),
         ("Submitted leadbot.", []),
     )
+    fake.script("the CTO", ("", [("tech_approve", {"notes": "fake:test fits"})]), ("Approved.", []))
     fake.script("HR for", ("", [("approve_hire", {"reason": "least privilege"})]), ("Approved.", []))
     fake.script(
         "LeadBot",
@@ -71,6 +72,7 @@ async def test_recruiter_gets_validation_errors_and_hr_can_reject(team, fake):
         ("", [("submit_candidate", {"name": "spammer", "role": "Mass mailer", "system_prompt": WORKER_PROMPT, "model": "fake", "tools": ["send_email"]})]),
         ("done", []),
     )
+    fake.script("the CTO", ("", [("tech_approve", {"notes": "ok"})]), ("Approved.", []))
     fake.script("HR for", ("", [("reject_hire", {"reason": "unsolicited bulk email"})]), ("Rejected.", []))
 
     result = await team.hire("Email everyone")
