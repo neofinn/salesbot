@@ -64,6 +64,7 @@ header.top {
 header.top h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.01em; }
 header.top h1 span { color: var(--accent); }
 .tagline { color: var(--muted); font-size: 13px; flex: 1; min-width: 200px; }
+.space-sel { width: auto; max-width: 220px; padding: 5px 8px; font-size: 14px; font-weight: 600; border-radius: 8px; }
 .status { font-family: var(--mono); font-size: 12px; color: var(--muted); }
 .status.bad { color: var(--bad); }
 
@@ -218,6 +219,7 @@ textarea, input, select {
 
 <header class="top">
   <h1>My<span>Ops</span></h1>
+  <select id="spaceSel" class="space-sel" aria-label="Profile"></select>
   <div class="tagline" id="tagline">Your personal AI team. Tell the Manager what you need; it hires bots through the Recruiter and HR, delegates the work, and queues every message for your sign-off.</div>
   <div class="status" id="status">Starting…</div>
 </header>
@@ -320,7 +322,8 @@ const MAX_ROUNDS = 4;
 
 const S = {
   bots: [], leads: [], outbox: [], chat: [], tasks: [],
-  profile: null, loaded: false, editingProfile: false, // who this copy of the page works for
+  profile: null, loaded: false, editingProfile: false, // who the open profile works for
+  root: null, space: "main", spaces: [], unsubs: [], // all profiles, and the one open now
 
   sample: null, store: null, readOnly: false, busy: false, ctl: null, tier: "default", lastError: "", mcp: null, clay: "checking", at: null, atState: "checking", atNote: "",
   live: null, // the in-progress manager turn: {steps: [{text, state}]}
@@ -332,7 +335,7 @@ function memoryStore() {
   const emit = (c) => (subs[c] || []).forEach((fn) => fn(Object.entries(cols[c] || {}).map(([id, d]) => ({ id, ...d }))));
   return {
     persistent: false,
-    sub(c, fn) { (subs[c] ||= []).push(fn); emit(c); },
+    sub(c, fn) { (subs[c] ||= []).push(fn); emit(c); return () => { subs[c] = subs[c].filter((f) => f !== fn); }; },
     async set(c, id, d) { (cols[c] ||= {})[id] = { ...d }; emit(c); },
     async update(c, id, d) { cols[c][id] = { ...cols[c][id], ...d }; emit(c); },
     async del(c, id) { delete (cols[c] || {})[id]; emit(c); },
@@ -344,8 +347,8 @@ function dbStore(db) {
     persistent: true,
     sub(c, fn, onErr) {
       let q = db.collection(c);
-      if (c === "chat") q = q.orderBy("at", "desc").limit(200);
-      q.onSnapshot((snap) => fn(snap.docs.map((d) => ({ id: d.id, ...d.data() }))), onErr);
+      if (c === "chat" || c.endsWith("/chat")) q = q.orderBy("at", "desc").limit(200);
+      return q.onSnapshot((snap) => fn(snap.docs.map((d) => ({ id: d.id, ...d.data() }))), onErr);
     },
     set: (c, id, d) => db.collection(c).doc(id).set(d),
     update: (c, id, d) => db.collection(c).doc(id).update(d),
@@ -366,6 +369,77 @@ const shortId = (prefix, taken) => {
     if (!taken.has(id)) return id;
   }
 };
+
+// ---------- Profiles ------------------------------------------------------------
+// Each profile (one business, or one area of life) has its own team, tasks, contacts, drafts,
+// chat and Airtable table. The first profile ("main") keeps the page's original top-level
+// collections, so data saved before profiles existed stays where it was; the others live
+// under spaces/<id>/. The list of profiles is the "spaces" collection.
+const MAIN = "main";
+const spacePath = (id, c) => (id === MAIN ? c : `spaces/${id}/${c}`);
+function scoped(base, id) {
+  const p = (c) => spacePath(id, c);
+  return {
+    persistent: base.persistent,
+    sub: (c, fn, onErr) => base.sub(p(c), fn, onErr),
+    set: (c, i, d) => base.set(p(c), i, d),
+    update: (c, i, d) => base.update(p(c), i, d),
+    del: (c, i) => base.del(p(c), i),
+    clear: (c) => base.clear(p(c)),
+  };
+}
+const spaceName = (id) => S.spaces.find((x) => x.id === id)?.name || (id === S.space && S.profile?.company) || (id === MAIN ? "My first profile" : "New profile");
+const savedSpace = () => { try { return localStorage.getItem("myops.space") || MAIN; } catch { return MAIN; } };
+
+function renderSpaces() {
+  const sel = $("spaceSel");
+  const ids = [MAIN, ...S.spaces.filter((x) => x.id !== MAIN).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)).map((x) => x.id)];
+  if (!ids.includes(S.space)) ids.push(S.space);
+  sel.replaceChildren(
+    ...ids.map((id) => el("option", { value: id, textContent: spaceName(id), selected: id === S.space })),
+    S.readOnly ? null : el("option", { value: "__new", textContent: "+ New profile…" }),
+  );
+  sel.disabled = S.busy;
+}
+async function newSpace() {
+  const id = shortId("p", new Set([MAIN, ...S.spaces.map((x) => x.id)]));
+  await S.root.set("spaces", id, { name: "New profile", createdAt: Date.now() }).catch(showStoreError);
+  openSpace(id);
+}
+
+function openSpace(id) {
+  S.unsubs.forEach((u) => { try { u?.(); } catch { /* already closed */ } });
+  S.unsubs = [];
+  S.space = id;
+  try { localStorage.setItem("myops.space", id); } catch { /* per-viewer convenience only */ }
+  Object.assign(S, { bots: [], tasks: [], leads: [], outbox: [], chat: [], profile: null, at: null, atNote: "", loaded: false, editingProfile: false });
+  S.store = scoped(S.root, id);
+  const onErr = (e) => { if (e?.code !== "unavailable") setStatus("Live updates stopped. Reload the page.", true); };
+  const sub = (c, fn) => S.unsubs.push(S.store.sub(c, fn, onErr));
+  sub("bots", (rows) => { S.bots = rows; renderTeam(); });
+  sub("tasks", (rows) => { S.tasks = rows; renderTasks(); });
+  sub("leads", (rows) => { S.leads = rows; renderLeads(); });
+  sub("config", (rows) => {
+    const cfg = rows.find((r) => r.id === "airtable");
+    S.at = cfg && cfg.baseId && cfg.tableId && cfg.fields?.sid ? cfg : null;
+    const prof = rows.find((r) => r.id === "profile");
+    S.profile = prof && prof.company ? prof : null;
+    S.loaded = true;
+    // Profiles saved before the switcher existed get their name in the list here.
+    if (S.profile && !S.readOnly && S.root.persistent && S.spaces.find((x) => x.id === id)?.name !== S.profile.company)
+      S.root.set("spaces", id, { name: S.profile.company, createdAt: S.spaces.find((x) => x.id === id)?.createdAt || S.profile.createdAt || Date.now() }).catch(() => {});
+    $("tagline").textContent = S.profile
+      ? `MyOps for ${S.profile.company}: your personal AI team. Tell the Manager what you need; it hires bots through the Recruiter and HR, delegates the work, and queues every message for your sign-off.`
+      : "Your personal AI team. Tell the Manager what you need; it hires bots through the Recruiter and HR, delegates the work, and queues every message for your sign-off.";
+    renderAirtableButtons(); renderConnections(); renderOperation(); renderChat(); renderSpaces();
+  });
+  sub("outbox", (rows) => { S.outbox = rows; renderOutbox(); });
+  sub("chat", (rows) => {
+    const pending = S.chat.filter((m) => String(m.id).startsWith("pending-") && !rows.some((r) => r.at === m.at && r.role === m.role));
+    S.chat = [...rows, ...pending]; renderChat();
+  });
+  renderAll();
+}
 
 // ---------- The owner -----------------------------------------------------------
 // Each copy of this page has its own data, so a fresh copy starts with no profile and asks for one.
@@ -463,7 +537,9 @@ function setupForm() {
     el("h3", { textContent: editing ? "Your profile" : "Set up your team" }),
     el("p", { textContent: editing
       ? "Every bot reads this before it works. Changes apply to the next request."
-      : "This copy of MyOps starts empty: no bots, contacts or history. Tell it who it works for and what you want help with, and the Manager will build a team around you." }),
+      : S.space !== MAIN
+        ? "This new profile has its own team, tasks, contacts, drafts and chat, separate from your other profiles. Describe the business or area it covers, and the Manager will build a team for it."
+        : "This copy of MyOps starts empty: no bots, contacts or history. Tell it who it works for and what you want help with, and the Manager will build a team around you." }),
     field("Your name or business name", "company", "e.g. Maria Lopez, or Bright Smile Dental Supply", false, true),
     field("About you and your work", "about", "What you do, your business if you have one, where you are based", true, true),
     field("People you work with", "customers", "Customers, clients or partners: who they are, where, and who decides", true),
@@ -484,6 +560,7 @@ function setupForm() {
     S.profile = { id: "profile", ...prof }; S.editingProfile = false;
     renderAll();
     await S.store.set("config", "profile", prof).catch(showStoreError);
+    await S.root.set("spaces", S.space, { name: prof.company, createdAt: S.spaces.find((x) => x.id === S.space)?.createdAt || prof.createdAt }).catch(() => {});
     if (!editing && hire.checked && !S.bots.length) send(
       `Let's set up my team.${prof.goals ? ` My goals: ${prof.goals.replace(/[.!?]*$/, ".")}` : ""} Hire a starting team of 2 to 4 bots that fits my work and goals (only the tools each one needs), then tell me who is on the team and what to ask each of them.`);
   };
@@ -500,28 +577,35 @@ function renderOperation() {
   if (!S.readOnly && S.loaded) {
     const edit = el("button", { className: "btn ghost small", type: "button", textContent: p ? "Edit profile" : "Set up",
       onclick: () => { S.editingProfile = true; showPane("pane-chat"); renderChat(); } });
-    const reset = el("button", { className: "btn ghost small", type: "button", textContent: "Start fresh", disabled: S.busy });
+    const label = S.space === MAIN ? "Start fresh" : "Delete profile";
+    const reset = el("button", { className: "btn ghost small", type: "button", textContent: label, disabled: S.busy });
     reset.onclick = async () => {
       if (!reset.classList.contains("armed")) {
         reset.classList.add("armed"); reset.textContent = "Erase everything here?";
-        setTimeout(() => { reset.classList.remove("armed"); reset.textContent = "Start fresh"; }, 5000);
+        setTimeout(() => { reset.classList.remove("armed"); reset.textContent = label; }, 5000);
         return;
       }
       reset.disabled = true; reset.textContent = "Clearing…";
       await resetOperation().catch(showStoreError);
     };
-    kids.push(el("div", { className: "row" }, edit, p ? reset : null));
-    if (p) kids.push(el("div", { className: "muted", style: "font-size:12px", textContent: "Starting fresh erases this page's bots, tasks, contacts, drafts and chat (rows already in Airtable stay there)." }));
+    const canReset = p || S.space !== MAIN;
+    kids.push(el("div", { className: "row" }, edit, canReset ? reset : null));
+    if (canReset) kids.push(el("div", { className: "muted", style: "font-size:12px", textContent: S.space === MAIN
+      ? "Starting fresh erases this profile's bots, tasks, contacts, drafts and chat. Other profiles and rows already in Airtable are not touched."
+      : "Deleting erases this profile's bots, tasks, contacts, drafts and chat. Other profiles and rows already in Airtable are not touched." }));
+    kids.push(el("div", { className: "muted", style: "font-size:12px", textContent: "Switch or add profiles (one per business) from the menu at the top." }));
   }
   box.replaceChildren(el("div", { className: "op" }, kids));
 }
 // Wipes this copy's data so it can start over for someone or something new.
+// The main profile stays in the list (empty); any other profile is removed from it.
 async function resetOperation() {
+  const id = S.space;
   for (const c of ["bots", "tasks", "leads", "outbox", "chat", "diagnostics"]) await S.store.clear(c);
-  for (const id of ["profile", "airtable"]) await S.store.del("config", id).catch(() => {});
-  Object.assign(S, { bots: [], tasks: [], leads: [], outbox: [], chat: [], profile: null, at: null, atNote: "", editingProfile: false });
+  for (const doc of ["profile", "airtable"]) await S.store.del("config", doc).catch(() => {});
+  await S.root.del("spaces", id).catch(() => {});
   showPane("pane-chat");
-  renderAll();
+  openSpace(MAIN);
 }
 
 function renderTasks() {
@@ -615,6 +699,7 @@ function syncCompose() {
   $("sendBtn").hidden = S.busy; $("stopBtn").hidden = !S.busy;
   $("input").disabled = S.readOnly; $("sendBtn").disabled = S.readOnly || !S.sample;
   $("checkBtn").disabled = S.busy;
+  $("spaceSel").disabled = S.busy;
   $("hireBtn").disabled = S.busy || S.readOnly || !S.sample;
   $("hireForm").hidden = S.readOnly;
 }
@@ -1235,6 +1320,11 @@ $("checkBtn").addEventListener("click", async () => {
   S.store.set("diagnostics", "last", { at: Date.now(), results }).catch(() => {});
   b.disabled = false;
 });
+$("spaceSel").addEventListener("change", (e) => {
+  const v = e.target.value;
+  if (S.busy) { renderSpaces(); return; }
+  if (v === "__new") newSpace(); else openSpace(v);
+});
 $("hireForm").addEventListener("submit", (e) => {
   e.preventDefault();
   const job = $("hireInput").value.trim();
@@ -1262,7 +1352,8 @@ function showPane(id) {
 document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => showPane(b.dataset.pane)));
 
 // ---------- Boot ----------------------------------------------------------------------
-S.store = memoryStore();
+S.root = memoryStore();
+S.store = scoped(S.root, MAIN);
 renderAll();
 (async () => {
   const claude = window.claude;
@@ -1274,33 +1365,20 @@ renderAll();
   else mcp.listTools(CLAY).then((r) => { S.clay = r?.servers?.length && r.servers[0].tools?.length ? "available" : "absent"; renderConnections(); })
     .catch(() => { S.clay = "absent"; renderConnections(); });
   if (db) {
-    S.store = dbStore(db);
+    S.root = dbStore(db);
     const canWrite = user ? await user.can("data.write").catch(() => null) : null;
     S.readOnly = canWrite === false;
   }
-  const onErr = (e) => { if (e?.code !== "unavailable") setStatus("Live updates stopped. Reload the page.", true); };
-  S.store.sub("bots", (rows) => { S.bots = rows; renderTeam(); }, onErr);
-  S.store.sub("tasks", (rows) => { S.tasks = rows; renderTasks(); }, onErr);
-  S.store.sub("leads", (rows) => { S.leads = rows; renderLeads(); }, onErr);
-  S.store.sub("config", (rows) => {
-    const cfg = rows.find((r) => r.id === "airtable");
-    S.at = cfg && cfg.baseId && cfg.tableId && cfg.fields?.sid ? cfg : null;
-    const prof = rows.find((r) => r.id === "profile");
-    S.profile = prof && prof.company ? prof : null;
-    S.loaded = true;
-    $("tagline").textContent = S.profile
-      ? `MyOps for ${S.profile.company}: your personal AI team. Tell the Manager what you need; it hires bots through the Recruiter and HR, delegates the work, and queues every message for your sign-off.`
-      : $("tagline").textContent;
-    renderAirtableButtons(); renderConnections(); renderOperation(); renderChat();
-  }, onErr);
   if (!mcp) S.atState = "absent";
   else mcp.listTools(AIRTABLE).then((r) => { S.atState = r?.servers?.length && r.servers[0].tools?.length ? "available" : "absent"; renderConnections(); renderAirtableButtons(); })
     .catch(() => { S.atState = "absent"; renderConnections(); renderAirtableButtons(); });
-  S.store.sub("outbox", (rows) => { S.outbox = rows; renderOutbox(); }, onErr);
-  S.store.sub("chat", (rows) => {
-    const pending = S.chat.filter((m) => String(m.id).startsWith("pending-") && !rows.some((r) => r.at === m.at && r.role === m.role));
-    S.chat = [...rows, ...pending]; renderChat();
-  }, onErr);
+  S.root.sub("spaces", (rows) => {
+    S.spaces = rows;
+    // The open profile was deleted (here or by someone else): go back to the main one.
+    if (S.space !== MAIN && !rows.some((x) => x.id === S.space) && !S.busy) openSpace(MAIN);
+    else renderSpaces();
+  }, () => {});
+  openSpace(savedSpace());
   if (!sample) setStatus("Preview: open in claude.ai to run the team", true);
   else if (!db) setStatus("Preview: nothing is saved here", true);
   else if (S.readOnly) setStatus("View only", false);
