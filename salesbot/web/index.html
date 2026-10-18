@@ -138,6 +138,9 @@
     <div id="fields-sms"></div>
     <h3>Web search (Brave)</h3>
     <div id="fields-search"></div>
+    <h3>OpenClaw browser agent</h3>
+    <p style="color: var(--muted); font-size: 13px; margin: 0 0 8px">Lets the Manager and bots with <code>openclaw_browse</code> hand research to your own OpenClaw (formerly Clawdbot). Enable its OpenAI-compatible HTTP endpoint and keep the Gateway on localhost or a private network.</p>
+    <div id="fields-openclaw"></div>
     <h3>Safety</h3>
     <div id="fields-behaviour"></div>
   </div>
@@ -215,7 +218,7 @@ async function loadStatus() {
     el("span", { className: "pill", textContent: `staff: ${s.default_model}` }),
     ...(s.providers.length ? s.providers.map((p) => pill(p, true))
       : [el("span", { className: "pill", style: "color: var(--bad)", textContent: "no AI connected" })]),
-    pill("email", s.email), pill("sms", s.sms), pill("web search", s.web_search),
+    pill("email", s.email), pill("sms", s.sms), pill("web search", s.web_search), pill("openclaw", s.openclaw),
     el("span", { className: "pill", textContent: s.require_approval ? "approval required" : "auto-send" }),
   );
 }
@@ -327,7 +330,7 @@ function fieldRow(f) {
 }
 
 function renderConnections(data) {
-  for (const g of ["ai", "email", "sms", "search", "behaviour"]) {
+  for (const g of ["ai", "email", "sms", "search", "openclaw", "behaviour"]) {
     $(`fields-${g}`).replaceChildren(...data.fields.filter((f) => f.group === g).map(fieldRow));
   }
   $("provList").replaceChildren(...data.providers.map((p) => {

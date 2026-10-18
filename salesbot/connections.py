@@ -40,6 +40,9 @@ FIELDS: tuple[Field, ...] = (
     Field("twilio_auth_token", "Twilio auth token", "sms", "secret"),
     Field("twilio_from_number", "Twilio phone number", "sms", "text", "+15551234567"),
     Field("brave_api_key", "Brave Search API key", "search", "secret"),
+    Field("openclaw_url", "OpenClaw Gateway URL", "openclaw", "text", "http://127.0.0.1:18789"),
+    Field("openclaw_token", "OpenClaw Gateway token", "openclaw", "secret"),
+    Field("openclaw_agent", "OpenClaw agent id", "openclaw", "text", "main"),
     Field("require_approval", "Require my approval before emails/texts are sent", "behaviour", "bool"),
 )
 FIELDS_BY_KEY = {f.key: f for f in FIELDS}

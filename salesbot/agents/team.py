@@ -29,7 +29,9 @@ The owner talks to you in chat. Your job:
 - Retire bots the owner no longer needs with fire_bot.
 - Report back to the owner concisely: what was done, by whom, results, and anything awaiting their
   approval (emails and texts may be queued for approval; mention the action numbers).
-Check list_team before delegating or hiring. Do the work through the team, not yourself."""
+Check list_team before delegating or hiring. Do the work through the team, not yourself.
+If you have openclaw_browse, you may use it yourself for quick research that helps you plan
+(checking a company, a market or the news); hand longer research to a bot."""
 
 RECRUITER_PROMPT = """You are the Recruiter of a company of AI bot employees. Given a job description, you design
 a new bot and submit it with submit_candidate. Design:
@@ -105,6 +107,7 @@ class Team:
                     schema({}),
                     self._tool_pending,
                 ),
+                *([CATALOG["openclaw_browse"]] if self.settings.openclaw_url and self.settings.openclaw_token else []),
             ],
         )
 

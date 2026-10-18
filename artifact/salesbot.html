@@ -989,9 +989,16 @@ async function importFromAirtable(btn) {
         phone: String(r.phone || ""), linkedin: String(r.linkedin || ""), status: STATUSES.includes(r.status) ? r.status : "new",
         notes: String(r.notes || "").slice(0, 2000), createdAt: Date.now(), updatedAt: Date.now(), addedBy: "airtable import" };
       await S.store.set("leads", id, lead);
-      fresh.push({ id, ...lead });
+      fresh.push({ id, ...lead, recordId: r.recordId });
     }
-    await syncLeads(fresh);
+    // Rows added straight to Airtable (for example by OpenClaw) have no Salesbot ID yet: write it
+    // into that same row so the next sync updates it instead of adding a copy.
+    for (let i = 0; i < fresh.length; i += 50) {
+      await S.mcp.callTool(AIRTABLE, "update_records_for_table", {
+        baseId: S.at.baseId, tableId: S.at.tableId, typecast: true,
+        records: fresh.slice(i, i + 50).map((l) => ({ id: l.recordId, ...atRecord(l) })),
+      });
+    }
     btn.textContent = fresh.length ? `Imported ${fresh.length}` : "Nothing new";
   } catch (e) { btn.textContent = "Import failed"; S.atNote = `Import failed: ${atError(e)}`; renderConnections(); }
   setTimeout(() => { btn.textContent = "Import from Airtable"; btn.disabled = false; }, 3000);
