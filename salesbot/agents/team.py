@@ -1,4 +1,4 @@
-"""The bot company: a manager, HR, a recruiter, a CTO, and the worker bots they hire."""
+"""The bot company: a manager, HR, a recruiter, a CTO, Android and iOS developers, and the worker bots they hire."""
 
 from __future__ import annotations
 
@@ -9,6 +9,8 @@ from typing import Any
 
 from .. import connections
 from ..config import Settings
+from ..apps import AppSpec, slugify
+from ..apps import validate as validate_app
 from ..llm import LLMError, LLMGateway, Message
 from ..store import AgentSpec, Store
 from ..tools import CATALOG, Tool, ToolContext, ToolError, execute_action
@@ -17,7 +19,7 @@ from .agent import Agent
 
 log = logging.getLogger(__name__)
 
-STAFF = ("manager", "hr", "recruiter", "cto")
+STAFF = ("manager", "hr", "recruiter", "cto", "android_dev", "ios_dev")
 # Chat turns kept word for word; older ones are folded into the chat's long-term memory.
 RECENT_MESSAGES = 20
 MEMORY_BATCH = 6
@@ -33,6 +35,8 @@ lead generation, reporting and admin. The owner talks to you in chat. Your job:
 - If no bot on the team fits the work, use hire_bot with a clear job description. The Recruiter will
   design the bot and HR will review it.
 - Retire bots the owner no longer needs with fire_bot.
+- Ask the app developers (ask_app_dev, platform android or ios) to create or update the team's phone
+  apps, e.g. a separate app for each of the owner's businesses.
 - Ask the CTO (ask_cto) about anything technical: which AI models are working or rate-limited, model
   choice and cost, connections and integrations, or when a bot fails for a technical reason.
 - Report back to the owner concisely: what was done, by whom, results, and anything awaiting their
@@ -60,6 +64,31 @@ CTO_PROMPT = """You are the CTO of MyOps, a personal team of AI bot employees. Y
 - When free models are failing or rate-limited, run run_api_hunt to refresh the router's chain.
 - In hiring, you review the technical side of each candidate (model and tools) before HR sees it.
 Be concrete and brief: say what you checked, what you changed and why. Never invent status: use your tools."""
+
+APP_DEV_COMMON = """You build and update the owner's phone apps for MyOps. Every app is one business's app:
+its own name, icon letter and colors, and the MyOps server it opens (server_url; empty means this server).
+A business that needs its own separate team and data runs its own MyOps server; its app points there.
+- Create or update an app with save_app (each save bumps its version). Use list_apps and app_links.
+- Every app is installable instantly, with no store and no build: open its install link on the phone.
+- The native project (download link from app_links) is built by the repo's "Mobile apps" GitHub workflow,
+  or locally. Native apps load the server, so updates on the server reach phones without a new release;
+  rebuild only when the name, icon or bundle id change.
+- Pick a strong, readable color for the icon and a light background. Keep short_name to 12 characters.
+Report the links and the exact next steps for the owner. Never claim an app is in a store unless the owner
+published it."""
+
+ANDROID_PROMPT = """You are the Android developer of MyOps, a personal team of AI bot employees.
+""" + APP_DEV_COMMON + """
+Android specifics: in Chrome, open the install link and tap Install app (or menu > Add to Home screen).
+The workflow builds a debug APK that installs directly (allow installs from the browser/files app). For
+Google Play: a signed release bundle (./gradlew bundleRelease) with the owner's upload key and a Play
+Console account ($25 once)."""
+
+IOS_PROMPT = """You are the iOS developer of MyOps, a personal team of AI bot employees.
+""" + APP_DEV_COMMON + """
+iOS specifics: in Safari, open the install link, tap Share > Add to Home Screen. A native iPhone app needs
+an Apple Developer account ($99/year) and a Mac or the workflow's macOS build, then TestFlight for testing
+and App Store review for release; without that, the home-screen app is the way to go."""
 
 MEMORY_PROMPT = """You are the memory keeper of MyOps, a personal team of AI bot employees. You maintain a compact
 long-term memory of the owner's chat with the Manager, used by whichever AI model answers next.
@@ -112,6 +141,13 @@ class Team:
             prompt,
             [
                 Tool(
+                    "ask_app_dev",
+                    "Ask the Android or iOS developer to create, update or explain the team's phone apps.",
+                    schema({"platform": {"type": "string", "enum": ["android", "ios"]},
+                            "request": string("What the app developer should do")}, ["platform", "request"]),
+                    self._tool_ask_app_dev,
+                ),
+                Tool(
                     "ask_cto",
                     "Ask the CTO a technical question (models, API router, connections, bot model changes) and get the answer.",
                     schema({"question": string("The question or request for the CTO")}, ["question"]),
@@ -145,6 +181,27 @@ class Team:
                 *([CATALOG["openclaw_browse"]] if self.settings.openclaw_url and self.settings.openclaw_token else []),
             ],
         )
+
+    def app_dev(self, platform: str) -> Agent:
+        tools = [
+            Tool("list_apps", "List the team's apps with their install and download links.", schema({}), self._tool_list_apps),
+            Tool("save_app", "Create an app, or update an existing one (same slug).", schema({
+                "name": string("App name shown on the phone, e.g. 'Lopez Bakery'"),
+                "slug": string("Optional short id, lowercase-with-dashes (default: from the name)"),
+                "short_name": string("Optional home-screen label, up to 12 characters"),
+                "color": string("Icon/theme color, hex like #233a57"),
+                "background": string("Splash background, hex like #ffffff"),
+                "letter": string("Optional icon letter (default: first letter of the name)"),
+                "description": string("One line about the app"),
+                "server_url": string("Optional: the MyOps server this app opens (https://...); empty = this server"),
+                "notes": string("What changed in this version"),
+            }, ["name"]), self._tool_save_app),
+            Tool("app_links", "Install link, native project download and build steps for one app.",
+                 schema({"slug": string("App slug")}, ["slug"]), self._tool_app_links),
+            Tool("retire_app", "Remove an app (phones that installed it stop working).",
+                 schema({"slug": string("App slug")}, ["slug"]), self._tool_retire_app),
+        ]
+        return self._staff(f"{platform}_dev", ANDROID_PROMPT if platform == "android" else IOS_PROMPT, tools)
 
     def cto(self) -> Agent:
         return self._staff(
@@ -437,6 +494,55 @@ class Team:
 
     async def _tool_ask_cto(self, args: dict[str, Any], ctx: ToolContext) -> str:
         return await self.cto().run(args["question"])
+
+    async def _tool_ask_app_dev(self, args: dict[str, Any], ctx: ToolContext) -> str:
+        platform = str(args.get("platform", "android")).lower()
+        if platform not in ("android", "ios"):
+            raise ToolError("platform must be android or ios")
+        return await self.app_dev(platform).run(args["request"])
+
+    # --- app developer tool handlers ------------------------------------------
+
+    def app_links(self, spec: AppSpec, base_url: str = "") -> dict[str, Any]:
+        base = (base_url or self.settings.public_url).rstrip("/")
+        server = (spec.server_url or base).rstrip("/")
+        return {
+            **spec.to_dict(),
+            "bundle_id": spec.bundle_id,
+            "install_link": f"{server}/app/{spec.slug}" if server else f"/app/{spec.slug}",
+            "native_project_download": f"{base}/api/apps/{spec.slug}/native.zip",
+            "needs_public_url": not server,
+        }
+
+    async def _tool_list_apps(self, args: dict[str, Any], ctx: ToolContext) -> str:
+        apps = [self.app_links(AppSpec.from_dict(a)) for a in await self.store.list_apps()]
+        return json.dumps(apps, indent=1) if apps else "No apps yet."
+
+    async def _tool_save_app(self, args: dict[str, Any], ctx: ToolContext) -> str:
+        name = str(args.get("name", "")).strip()
+        slug = str(args.get("slug") or "").strip().lower() or slugify(name)
+        old = await self.store.get_app(slug)
+        fields = {k: str(v).strip() for k, v in args.items() if k in AppSpec.__dataclass_fields__ and v not in (None, "")}
+        spec = AppSpec.from_dict({**(old or {}), **fields, "slug": slug, "name": name or (old or {}).get("name", ""),
+                                  "version": (old or {}).get("version", 0) + 1})
+        problems = validate_app(spec)
+        if problems:
+            raise ToolError("App not saved: " + "; ".join(problems))
+        await self.store.save_app(spec.to_dict())
+        links = self.app_links(spec)
+        note = " Set the server's public address (SALESBOT_PUBLIC_URL) so phones can reach it." if links["needs_public_url"] else ""
+        return f"{'Updated' if old else 'Created'} {spec.name} v{spec.version}: {json.dumps(links)}{note}"
+
+    async def _tool_app_links(self, args: dict[str, Any], ctx: ToolContext) -> str:
+        data = await self.store.get_app(str(args["slug"]).strip())
+        if data is None:
+            raise ToolError(f"No app {args['slug']!r}.")
+        return json.dumps(self.app_links(AppSpec.from_dict(data)), indent=1)
+
+    async def _tool_retire_app(self, args: dict[str, Any], ctx: ToolContext) -> str:
+        if not await self.store.delete_app(str(args["slug"]).strip()):
+            raise ToolError(f"No app {args['slug']!r}.")
+        return f"Removed app {args['slug']}."
 
     # --- CTO tool handlers ----------------------------------------------------
 

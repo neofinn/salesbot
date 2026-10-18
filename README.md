@@ -17,7 +17,8 @@ You talk to the team from a **web app**, over **Telegram**, or in a terminal cha
  You (Telegram) ──► Manager ──► delegate_task ──► worker bots ──► tools (web, email, SMS, CRM)
                       │
                       ├──► hire_bot ──► Recruiter (designs bot) ──► CTO (model & tools) ──► HR (approve / reject) ──► roster
-                      └──► ask_cto ──► CTO (router status, free API hunt, model changes)
+                      ├──► ask_cto ──► CTO (router status, free API hunt, model changes)
+                      └──► ask_app_dev ──► Android / iOS developers (phone apps per business)
 ```
 
 ## Deploy (get your own link)
@@ -145,6 +146,30 @@ Set `ROUTER_MODELS` to pin your own chain instead, e.g. `gemini:gemini-2.5-flash
   Manager's prompt, so the thread survives provider switches, restarts and long chats. `/reset`
   clears it.
 
+## Phone apps: Android and iOS developers
+
+Two more core staff, **android_dev** and **ios_dev**, build and update the team's phone apps. Ask
+the Manager, e.g. "Make an app for Lopez Bakery in orange", or use the Apps tab. Each business gets
+its own app, with its own name, icon letter, colors and the MyOps server it opens (`server_url`).
+A business that needs a fully separate team and data runs its own MyOps server and gets an app
+pointing there.
+
+- **Instant install, no store:** every app is live at `https://<server>/app/<slug>`.
+  - It is a web app with its own manifest, icons and service worker.
+  - Android: open it in Chrome and tap Install app.
+  - iPhone: open it in Safari, then Share > Add to Home Screen.
+- **Native Android and iOS:** "Native project" in the Apps tab downloads a Capacitor project.
+  1. Unzip it into `apps/<slug>/` in this repo.
+  2. The **Mobile apps** workflow (`.github/workflows/mobile.yml`) builds an installable Android APK
+     on every push, and an iOS simulator build on demand.
+  3. App store releases need your Google Play ($25 once) or Apple Developer ($99/year) account
+     to sign them.
+- **Updates:** both kinds of app load the team from the server, so changes reach phones at once.
+  Rebuild a native app only when its name, icon or bundle id change; each save bumps its version.
+
+Set `SALESBOT_PUBLIC_URL` (the https address phones use to reach the server) for app links and
+native projects.
+
 ## OpenClaw browser agent (optional)
 
 [OpenClaw](https://docs.openclaw.ai) (formerly Clawdbot) is a self-hosted agent with a real
@@ -230,7 +255,8 @@ refusal fallbacks.
 ```
 salesbot/
   agents/agent.py      one bot: system prompt + model + tools, runs the tool-calling loop
-  agents/team.py       Manager, HR, Recruiter, CTO; hiring, delegation, approvals, chat memory
+  agents/team.py       Manager, HR, Recruiter, CTO, Android/iOS devs; hiring, delegation, approvals, chat memory
+  apps/                phone apps: icons, installable web app, Capacitor native projects
   llm/                 provider-neutral gateway + Claude API / Claude Code CLI / OpenAI / xAI / Gemini
   tools/               web search & fetch, OpenClaw browsing, stock research, email, SMS, CRM
   research/            stock research engine (prices, SEC financials, technicals, breakout scan)

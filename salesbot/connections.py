@@ -47,6 +47,7 @@ FIELDS: tuple[Field, ...] = (
     Field("openclaw_url", "OpenClaw Gateway URL", "openclaw", "text", "http://127.0.0.1:18789"),
     Field("openclaw_token", "OpenClaw Gateway token", "openclaw", "secret"),
     Field("openclaw_agent", "OpenClaw agent id", "openclaw", "text", "main"),
+    Field("public_url", "Public address of this server (for phone apps)", "behaviour", "text", "https://ops.example.com"),
     Field("require_approval", "Require my approval before emails/texts are sent", "behaviour", "bool"),
 )
 FIELDS_BY_KEY = {f.key: f for f in FIELDS}

@@ -1,0 +1,93 @@
+# Builds every MyOps phone app in apps/<slug>/ (native projects exported by the Android and iOS
+# developers: Apps tab > "Native project", unzipped into apps/).
+# Android: a debug APK you can install directly, on every push that changes apps/.
+# iOS: a simulator build on demand (Actions > Mobile apps > Run workflow, ios: true); installing on
+# iPhones needs signing with your Apple Developer account.
+name: Mobile apps
+
+on:
+  push:
+    paths: ["apps/**", ".github/workflows/mobile.yml"]
+  pull_request:
+    paths: ["apps/**", ".github/workflows/mobile.yml"]
+  workflow_dispatch:
+    inputs:
+      ios:
+        description: "Also build iOS (macOS runner)"
+        type: boolean
+        default: false
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    outputs:
+      apps: ${{ steps.find.outputs.apps }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: find
+        run: |
+          apps=$(find apps -mindepth 2 -maxdepth 2 -name capacitor.config.json -printf '%h\n' 2>/dev/null | xargs -r -n1 basename | jq -R . | jq -cs .)
+          echo "apps=${apps:-[]}" >> "$GITHUB_OUTPUT"
+          echo "Apps: ${apps:-none}"
+
+  android:
+    needs: list
+    if: needs.list.outputs.apps != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.list.outputs.apps) }}
+    defaults:
+      run:
+        working-directory: apps/${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm install --no-audit --no-fund
+      - run: npm run android
+      - name: Set the version from myops-app.json
+        run: |
+          v=$(jq -r .version myops-app.json)
+          sed -i -E "s/versionCode [0-9]+/versionCode $v/; s/versionName \"[^\"]*\"/versionName \"1.0.$v\"/" android/app/build.gradle
+      - run: ./gradlew assembleDebug --no-daemon
+        working-directory: apps/${{ matrix.app }}/android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.app }}-android-apk
+          path: apps/${{ matrix.app }}/android/app/build/outputs/apk/debug/app-debug.apk
+
+  ios:
+    needs: list
+    if: needs.list.outputs.apps != '[]' && github.event_name == 'workflow_dispatch' && inputs.ios
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.list.outputs.apps) }}
+    defaults:
+      run:
+        working-directory: apps/${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm run ios
+      - name: Build for the iOS simulator (unsigned)
+        run: |
+          cd ios/App
+          if [ -d App.xcworkspace ]; then target="-workspace App.xcworkspace"; else target="-project App.xcodeproj"; fi
+          xcodebuild $target -scheme App -configuration Release -sdk iphonesimulator -derivedDataPath build CODE_SIGNING_ALLOWED=NO
+          cd build/Build/Products/Release-iphonesimulator && zip -qr "$GITHUB_WORKSPACE/${{ matrix.app }}-ios-simulator.zip" App.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.app }}-ios-simulator
+          path: ${{ matrix.app }}-ios-simulator.zip

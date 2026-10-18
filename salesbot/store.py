@@ -59,6 +59,11 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS apps (
+    slug TEXT PRIMARY KEY,
+    spec TEXT NOT NULL,
+    updated_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS chat_memory (
     chat_id TEXT PRIMARY KEY,
     summary TEXT NOT NULL,
@@ -204,6 +209,29 @@ class Store:
             "SELECT id, role, text FROM chat_history WHERE chat_id = ? AND id > ? ORDER BY id", (chat_id, after_id)
         ) as cur:
             return [(r["id"], r["role"], r["text"]) for r in await cur.fetchall()]
+
+    # --- mobile apps ------------------------------------------------------------
+
+    async def save_app(self, spec: dict[str, Any]) -> None:
+        await self.db.execute(
+            "INSERT OR REPLACE INTO apps (slug, spec, updated_at) VALUES (?, ?, ?)",
+            (spec["slug"], json.dumps(spec), time.time()),
+        )
+        await self.db.commit()
+
+    async def get_app(self, slug: str) -> dict[str, Any] | None:
+        async with self.db.execute("SELECT spec FROM apps WHERE slug = ?", (slug,)) as cur:
+            row = await cur.fetchone()
+        return json.loads(row["spec"]) if row else None
+
+    async def list_apps(self) -> list[dict[str, Any]]:
+        async with self.db.execute("SELECT spec FROM apps ORDER BY updated_at") as cur:
+            return [json.loads(r["spec"]) for r in await cur.fetchall()]
+
+    async def delete_app(self, slug: str) -> bool:
+        cur = await self.db.execute("DELETE FROM apps WHERE slug = ?", (slug,))
+        await self.db.commit()
+        return cur.rowcount > 0
 
     async def get_memory(self, chat_id: str) -> tuple[str, int]:
         """The rolling summary of a chat's older turns, and the last message id it covers."""
