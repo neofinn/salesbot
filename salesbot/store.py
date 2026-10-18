@@ -173,6 +173,13 @@ class Store:
         ) as cur:
             return [dict(r) for r in await cur.fetchall()]
 
+    async def tasks_with_status(self, status: str, since: float = 0) -> list[dict[str, Any]]:
+        async with self.db.execute(
+            "SELECT id, agent, task, result, status, created_at FROM tasks WHERE status = ? AND created_at >= ? ORDER BY id",
+            (status, since),
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
     # --- approval queue ---------------------------------------------------
 
     async def add_pending(self, kind: str, payload: dict[str, Any], requested_by: str) -> int:
@@ -371,6 +378,27 @@ class Store:
         )
         await self.db.commit()
         return cur.rowcount > 0
+
+    async def all_leads(self) -> list[dict[str, Any]]:
+        async with self.db.execute("SELECT * FROM leads ORDER BY id") as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+    async def delete_lead(self, lead_id: int) -> bool:
+        cur = await self.db.execute("DELETE FROM leads WHERE id = ?", (lead_id,))
+        await self.db.commit()
+        return cur.rowcount > 0
+
+    async def pending_before(self, before: float) -> list[dict[str, Any]]:
+        async with self.db.execute(
+            "SELECT * FROM pending_actions WHERE status = 'pending' AND created_at < ? ORDER BY id", (before,)
+        ) as cur:
+            return [_row_to_action(r) for r in await cur.fetchall()]
+
+    async def backup(self, path: str) -> None:
+        """A consistent copy of the whole database, safe while the app is running."""
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        async with aiosqlite.connect(path) as dest:
+            await self.db.backup(dest)
 
     async def find_leads(self, query: str = "", status: str = "", limit: int = 50) -> list[dict[str, Any]]:
         sql = "SELECT * FROM leads WHERE 1 = 1"

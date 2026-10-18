@@ -1,5 +1,5 @@
-"""The bot company: a manager, HR, a recruiter, a CTO, Android and iOS developers, a scribe, a video producer,
-and the worker bots they hire."""
+"""The bot company: leadership (manager, CTO), people (recruiter, HR), development (Android and iOS developers),
+content (scribe, video producer), maintenance, and the worker bots they hire."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import re
 import time
 from typing import Any
 
-from .. import connections
+from .. import connections, maintenance
 from ..config import Settings
 from ..apps import AppSpec, slugify
 from ..apps import validate as validate_app
@@ -23,7 +23,14 @@ from .agent import Agent
 
 log = logging.getLogger(__name__)
 
-STAFF = ("manager", "hr", "recruiter", "cto", "android_dev", "ios_dev", "scribe", "video_producer")
+STAFF = ("manager", "hr", "recruiter", "cto", "android_dev", "ios_dev", "scribe", "video_producer", "maintenance")
+TEAMS = {
+    "Leadership": ("manager", "cto"),
+    "People": ("recruiter", "hr"),
+    "Development": ("android_dev", "ios_dev"),
+    "Content": ("scribe", "video_producer"),
+    "Maintenance": ("maintenance",),
+}
 # Chat turns kept word for word; older ones are folded into the chat's long-term memory.
 RECENT_MESSAGES = 20
 MEMORY_BATCH = 6
@@ -47,6 +54,9 @@ lead generation, reporting and admin. The owner talks to you in chat. Your job:
   SOPs and briefs. Notes are kept in the Notes tab.
 - Ask the Video Producer (ask_video_producer) for short videos: promos, announcements, explainers and
   social clips (animated text scenes rendered to MP4, with a voice-over script and post caption).
+- Ask the Maintenance team (ask_maintenance) for a health check of the team and its data (stuck or failed
+  tasks, duplicate contacts, stale approvals, disk and backups), a database backup, or a clean-up. Ask for
+  fixes only when the owner wants them.
 - Report back to the owner concisely: what was done, by whom, results, and anything awaiting their
   approval (emails and texts may be queued for approval; mention the action numbers).
 Check list_team before delegating or hiring. Do the work through the team, not yourself.
@@ -123,6 +133,15 @@ animated text scenes (no filmed footage): promos, explainers, announcements and 
 - Only state facts about the business from your brief; never invent prices, results, awards or testimonials.
 Render it with create_video and report the title, length and the link it returns."""
 
+MAINTENANCE_PROMPT = """You are the Maintenance team of MyOps, a personal team of AI bot employees: the systems maintainer
+and the data keeper. You keep the team healthy and its data clean.
+- Start with health_check. Report what you found in plain words: stuck or failing tasks (and the likely cause
+  from their errors), duplicate contacts, approvals waiting over 30 days, disk space and the last backup.
+- Fix only what you were asked to fix: fix_stuck_tasks, merge_duplicate_contacts, expire_stale_approvals.
+  Before any clean-up that deletes or merges records, run backup_database first.
+- For problems with AI models, keys or the router, say the CTO should look at it; do not guess.
+Finish with what you checked, what you changed, and what the owner should do next, if anything."""
+
 HR_PROMPT = """You are HR for MyOps, a personal team of AI bot employees. You review candidate bots before they join the team.
 Approve with approve_hire only if: the role matches the job description, the system prompt is clear and
 safe (no deception, no spam, respects consent and anti-spam law), and the tools are the minimum the job
@@ -192,6 +211,12 @@ class Team:
                     schema({"request": string("The brief: purpose, audience, platform, length, key message, call to action")},
                            ["request"]),
                     self._tool_ask_video,
+                ),
+                Tool(
+                    "ask_maintenance",
+                    "Ask the Maintenance team for a health check, a database backup, or a clean-up and get its report.",
+                    schema({"request": string("What to check or fix")}, ["request"]),
+                    self._tool_ask_maintenance,
                 ),
                 Tool("list_team", "List the bots currently on the team.", schema({}), self._tool_list_team),
                 Tool(
@@ -289,6 +314,19 @@ class Team:
                 "narration": string("Voice-over script"), "caption": string("Post caption with hashtags"),
             }, ["title", "aspect", "scenes"]), self._tool_create_video),
             Tool("list_videos", "List the videos made so far.", schema({}), self._tool_list_videos),
+        ])
+
+    def maintenance(self) -> Agent:
+        return self._staff("maintenance", MAINTENANCE_PROMPT, [
+            Tool("health_check", "Stuck and failed tasks, duplicate contacts, stale approvals, unrendered videos, "
+                 "disk space and the last backup.", schema({}), self._tool_health),
+            Tool("backup_database", "Save a backup copy of the whole database (the last 7 are kept).", schema({}),
+                 self._tool_backup),
+            Tool("fix_stuck_tasks", "Mark tasks running for over 30 minutes as failed.", schema({}), self._tool_fix_stuck),
+            Tool("merge_duplicate_contacts", "Merge duplicate contacts (same email, or same name and company) into the "
+                 "oldest record.", schema({}), self._tool_merge_dupes),
+            Tool("expire_stale_approvals", "Expire emails/texts that waited over 30 days for approval.", schema({}),
+                 self._tool_expire),
         ])
 
     async def ask_scribe(self, request: str, chat_id: str = "") -> str:
@@ -579,6 +617,28 @@ class Team:
         if platform not in ("android", "ios"):
             raise ToolError("platform must be android or ios")
         return await self.app_dev(platform).run(args["request"])
+
+    async def _tool_ask_maintenance(self, args: dict[str, Any], ctx: ToolContext) -> str:
+        return await self.maintenance().run(args["request"])
+
+    async def _tool_health(self, args: dict[str, Any], ctx: ToolContext) -> str:
+        report = await maintenance.health(self.store, self.settings.data_dir)
+        report["ai_providers_connected"] = self.gateway.available()
+        return json.dumps(report, indent=1)
+
+    async def _tool_backup(self, args: dict[str, Any], ctx: ToolContext) -> str:
+        if self.store.path == ":memory:":
+            raise ToolError("This database is in memory only; there is nothing on disk to back up.")
+        return f"Backed up the database to {await maintenance.backup(self.store, self.settings.data_dir)}"
+
+    async def _tool_fix_stuck(self, args: dict[str, Any], ctx: ToolContext) -> str:
+        return f"Marked {await maintenance.fix_stuck_tasks(self.store)} stuck task(s) failed."
+
+    async def _tool_merge_dupes(self, args: dict[str, Any], ctx: ToolContext) -> str:
+        return f"Merged {await maintenance.merge_duplicates(self.store)} duplicate contact(s) into their oldest record."
+
+    async def _tool_expire(self, args: dict[str, Any], ctx: ToolContext) -> str:
+        return f"Expired {await maintenance.expire_stale_approvals(self.store)} stale approval(s)."
 
     async def _tool_ask_video(self, args: dict[str, Any], ctx: ToolContext) -> str:
         return await self.video_producer().run(args["request"])
