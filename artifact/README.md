@@ -17,6 +17,10 @@ https://claude.ai/artifact/6YkVnFET8ApmLsBJfur2pV (a blank copy: https://claude.
   profile ("Delete profile" on any profile but the first also removes it from the menu). Rows
   already synced to Airtable stay in Airtable.
 - Every delegation is logged on the Tasks board (`tasks`) with its status and report.
+- Reports tab (`reports` per profile): research written by the MyOps research engine
+  (`python -m salesbot.research scan --report-doc report.json`, then stored in the profile's
+  `reports` collection). Bots with `research_read` work from the latest report's real numbers;
+  the page cannot fetch market data itself.
 - The Contacts tab is the team's contact book (leads, clients and other contacts).
 - Clay (lead search, emails, web research) and Airtable (contact sync) come from the viewer's
   claude.ai connectors. A copy without an Airtable table can create one from the Contacts tab
