@@ -19,6 +19,8 @@ export const PROVIDERS = [
   { id: "perplexity", name: "Perplexity", kind: "openai", base: "https://api.perplexity.ai", keyUrl: "https://www.perplexity.ai/settings/api", models: ["sonar-pro", "sonar"] },
   { id: "together", name: "Together AI", kind: "openai", base: "https://api.together.xyz/v1", keyUrl: "https://api.together.ai/settings/api-keys", prefer: ["Llama-3.3-70B", "Qwen"], skip: /embed|image|flux|whisper/ },
   { id: "cohere", name: "Cohere", kind: "openai", base: "https://api.cohere.ai/compatibility/v1", keyUrl: "https://dashboard.cohere.com/api-keys", models: ["command-a-03-2025", "command-r-plus"] },
+  { id: "openclaw", name: "OpenClaw (Clawdbot)", kind: "openai", base: "http://192.168.1.10:18789/v1", customBase: true, models: ["openclaw:main"],
+    tokenLabel: "Gateway token", note: "Your own OpenClaw agent runs the team (it can browse the web)." },
   { id: "ollama", name: "Ollama (your own computer)", kind: "openai", base: "http://192.168.1.10:11434/v1", noKey: true, customBase: true, prefer: ["qwen", "llama"] },
 ];
 
@@ -57,7 +59,7 @@ async function call(url, init, signal) {
 /** Model ids the key can use, best-first; also proves the key works. */
 export async function listModels(cfg, signal) {
   const p = provider(cfg.provider), base = (cfg.base || p.base).replace(/\/$/, "");
-  if (p.models && !p.customBase) {
+  if (p.models) {
     // These platforms have no reliable model list: a tiny call checks the key instead.
     await complete({ ...cfg, model: p.models[0] }, "Reply with OK.", { signal, maxTokens: 5 });
     return p.models;

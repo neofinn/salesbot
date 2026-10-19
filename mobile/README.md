@@ -17,6 +17,18 @@ phone. There is no MyOps server to run. AI calls go straight from the phone to t
 The **Account** button in the app shows who is signed in and which AI is in use, and lets you change AI
 or sign out.
 
+## OpenClaw (formerly Clawdbot)
+OpenClaw runs on your own computer with a real browser. Turn on its Gateway's HTTP endpoint
+(`gateway.http.endpoints.chatCompletions.enabled: true` in the OpenClaw config) and note the Gateway token.
+Then link it either way:
+- **As the team's AI:** at sign-in step 2 pick **OpenClaw (Clawdbot)**, enter the Gateway address and token.
+- **As a browsing helper:** keep any AI for the team, then **Account > Link OpenClaw**. The Manager gets a
+  `browse` action that sends web research to OpenClaw (read-only: no logins, purchases, posts or messages).
+
+Address: on the same Wi-Fi, `http://<computer-ip>:18789/v1` (the app allows plain http to your local
+network). Away from home, put the Gateway behind Tailscale (`tailscale serve`) and use its https address;
+never expose the Gateway to the open internet.
+
 ## Not on the phone (yet)
 Clay and Airtable connectors and the stock screener's market data come from claude.ai and the research
 engine; the phone app shows those tabs without them.

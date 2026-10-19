@@ -877,6 +877,7 @@ function managerPrompt(history, message, results, round) {
       ? `- The Screener Analyst screens ${Object.keys(MARKETS).filter(screenerFor).map((mk) => `${MARKETS[mk]} (${screenerFor(mk).rows.length} stocks, data as of ${screenerFor(mk).meta.generated_at})`).join(" and ")} on price, returns, RSI, 52-week high/low, breakout pivot and setup score, volume and moving averages (Indian Nifty 500 stocks also by sector). Use a screen action with the request in plain words for any stock screening question; it picks the market and filters itself and the results show in the Screener tab.`
       : "- The Screener Analyst screens Indian (NSE) and US penny stocks once the research engine has published market snapshots (none yet): a screen action will say so.",
     "- The CTO answers technical questions (which connections and data are live, why a bot's tool failed, what a job needs set up): use an ask_cto action.",
+    S.openclaw ? "- OpenClaw, the owner's own browsing agent, can research the live web with a real browser (company sites, news, prices, listings). Use a browse action with a complete research task; it reads only and never logs in, buys, posts or sends anything. Hand longer research to a bot afterwards with its findings." : "",
     "",
     `Team roster (worker bots): ${JSON.stringify(rosterDigest())}`,
     S.reports.length ? `Research reports: ${S.reports.length}; the latest is "${reportDigest().title}" from ${reportDigest().generated_at} with ${reportDigest().items.length} stocks (${reportDigest().items.map((x) => x.ticker).join(", ")}). Bots granted research_read see its real numbers. For stocks not in the report, use a screen action (the screener covers Indian NSE stocks and US penny stocks); no one on the team can fetch intraday prices or news.` : "",
@@ -890,7 +891,7 @@ function managerPrompt(history, message, results, round) {
     results.length ? "\nWhat happened with the actions you already took for this message:\n" + results.map((r, i) => `${i + 1}. ${r}`).join("\n") : "",
     "",
     "Reply with ONLY a JSON object:",
-    '{"reply": "your message to the owner", "actions": [ {"type": "hire", "name": "snake_case_name", "job": "job description"}, {"type": "delegate", "bot": "bot_name", "task": "complete, self-contained brief including every detail the bot needs (names, emails, tone)"}, {"type": "fire", "bot": "bot_name"}, {"type": "ask_cto", "question": "technical question"}, {"type": "scribe", "request": "what to write or update"}, {"type": "make_video", "request": "video brief"}, {"type": "screen", "request": "the screening request, in plain words"}, {"type": "build_app", "request": "app brief", "app_id": "optional, to update an app"}, {"type": "maintenance", "mode": "check"} ]}',
+    '{"reply": "your message to the owner", "actions": [ {"type": "hire", "name": "snake_case_name", "job": "job description"}, {"type": "delegate", "bot": "bot_name", "task": "complete, self-contained brief including every detail the bot needs (names, emails, tone)"}, {"type": "fire", "bot": "bot_name"}, {"type": "ask_cto", "question": "technical question"}, {"type": "scribe", "request": "what to write or update"}, {"type": "make_video", "request": "video brief"}, {"type": "screen", "request": "the screening request, in plain words"}' + (S.openclaw ? ', {"type": "browse", "task": "web research task for OpenClaw"}' : "") + ', {"type": "build_app", "request": "app brief", "app_id": "optional, to update an app"}, {"type": "maintenance", "mode": "check"} ]}',
     "Actions run in order, so you may hire a bot and delegate to it in the same list. Delegate to a bot only if it is on the roster or hired earlier in the list.",
     "While actions remain, keep \"reply\" to one short line. When the work is finished, return \"actions\": [] and make \"reply\" your final report: what was done and by whom, the results, and draft numbers waiting in the out-tray. Plain text, no markdown headings.",
     round >= MAX_ROUNDS ? "This is your last round: \"actions\" must be []." : "",
@@ -925,6 +926,7 @@ async function runAction(a, signal) {
   if (type === "scribe") return scribeWrite(String(a.request || ""), signal);
   if (type === "make_video") return produceVideo(String(a.request || ""), signal);
   if (type === "screen") return screenStocks(String(a.request || ""), signal);
+  if (type === "browse") return browseWeb(String(a.task || ""), signal);
   if (type === "build_app") return buildApp(String(a.request || ""), String(a.app_id || ""), signal);
   if (type === "maintenance") return runMaintenance(a.mode === "fix" ? "fix" : "check", signal);
   if (type === "fire") {
@@ -936,6 +938,18 @@ async function runAction(a, signal) {
     return `fire ${bot.name}: retired.`;
   }
   return `Unknown action ${JSON.stringify(a).slice(0, 120)}: skipped.`;
+}
+
+// ---------- OpenClaw browsing (phone app only) ----------
+async function browseWeb(task, signal) {
+  if (!task) return "browse: no task given.";
+  if (!S.openclaw) return "browse: OpenClaw is not linked. On the phone app, open Account > Link OpenClaw.";
+  const st = step("OpenClaw is browsing…");
+  try {
+    const text = await S.openclaw.browse(task, signal);
+    st.done("OpenClaw finished browsing");
+    return `browse (OpenClaw, live web; facts as reported with their sources): ${String(text).slice(0, 8000)}`;
+  } catch (e) { st.fail("OpenClaw couldn't finish"); if (e?.code === "cancelled") throw e; return `browse failed (${e?.message || e?.code || "error"}).`; }
 }
 
 // ---------- Scribe: the written record (notes collection) ----------------------------
@@ -2257,6 +2271,8 @@ renderAll();
     claude?.use("downloads") ?? null,
   ]);
   S.downloads = downloads;
+  // OpenClaw (formerly Clawdbot) browsing helper: only the MyOps phone app provides it.
+  claude?.use("openclaw")?.then((oc) => { S.openclaw = oc || null; }).catch(() => {});
   S.sample = sample; S.mcp = mcp;
   if (!mcp) S.clay = "absent";
   else mcp.listTools(CLAY).then((r) => { S.clay = r?.servers?.length && r.servers[0].tools?.length ? "available" : "absent"; renderConnections(); })

@@ -15,14 +15,20 @@ if (platform === "android") {
                 <data android:scheme="${SCHEME}" />
             </intent-filter>`);
     if (!x.includes(`android:scheme="${SCHEME}"`)) throw new Error("could not add the link scheme to AndroidManifest.xml");
-    writeFileSync(f, x);
   }
+  // Plain http to a computer on the same Wi-Fi (OpenClaw Gateway, Ollama).
+  if (!x.includes("usesCleartextTraffic")) x = x.replace("<application", '<application\n        android:usesCleartextTraffic="true"');
+  writeFileSync(f, x);
 } else if (platform === "ios") {
   const f = "ios/App/App/Info.plist";
   if (!existsSync(f)) throw new Error(`${f} not found`);
   let x = readFileSync(f, "utf8");
   if (!x.includes(`<string>${SCHEME}</string>`)) {
     x = x.replace(/<dict>/, `<dict>
+	<key>NSAppTransportSecurity</key>
+	<dict><key>NSAllowsLocalNetworking</key><true/></dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>MyOps connects to your OpenClaw or Ollama computer on this network.</string>
 	<key>CFBundleURLTypes</key>
 	<array><dict><key>CFBundleURLSchemes</key><array><string>${SCHEME}</string></array></dict></array>`);
     writeFileSync(f, x);

@@ -78,8 +78,10 @@ function pick(p, key = "") {
   picked = p; renderProviders();
   $("keyForm").hidden = false; $("modelWrap").hidden = true; say("aiMsg", "");
   $("key").value = key; $("key").hidden = $("keyLabel").hidden = !!p.noKey;
-  $("keyLabel").textContent = `${p.name} API key`;
-  $("keyHelp").innerHTML = p.noKey ? "Run Ollama on a computer on the same Wi-Fi and enter its address." : `Get one at <a href="${p.keyUrl}" target="_blank" rel="noopener">${new URL(p.keyUrl).host}</a>, then paste it here.`;
+  $("keyLabel").textContent = p.tokenLabel ? `${p.name} ${p.tokenLabel}` : `${p.name} API key`;
+  $("keyHelp").innerHTML = p.noKey ? "Run Ollama on a computer on the same Wi-Fi and enter its address."
+    : p.id === "openclaw" ? "Turn on the Gateway's HTTP endpoint (gateway.http.endpoints.chatCompletions.enabled: true), then enter its address and token. Same Wi-Fi: http://your-computer-ip:18789/v1. Away from home: a Tailscale https address."
+    : `Get one at <a href="${p.keyUrl}" target="_blank" rel="noopener">${new URL(p.keyUrl).host}</a>, then paste it here.`;
   $("baseWrap").hidden = !p.customBase; $("base").value = p.base;
   if (key) connect();
 }
