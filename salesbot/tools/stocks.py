@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ..research import analyze, scan
+from ..research import analyze, filters, scan
 from ..research.data import DataError
 from ..research.screener import summary
 from .base import Tool, ToolContext, ToolError, schema, string
@@ -30,6 +30,42 @@ async def _scan(args: dict[str, Any], ctx: ToolContext) -> str:
         raise ToolError(str(exc)) from exc
     return summary(report)
 
+
+async def _filter(args: dict[str, Any], ctx: ToolContext) -> str:
+    snap = filters.load_cached(ctx.settings.data_dir)
+    if snap is None:
+        try:
+            snap = await filters.snapshot(600)
+        except DataError as exc:
+            raise ToolError(str(exc)) from exc
+        filters.save_cached(ctx.settings.data_dir, snap)
+    preset = str(args.get("preset") or "")
+    criteria = dict(filters.PRESETS.get(preset, {}))
+    for key in ("min", "max", "is", "tickers", "sort", "desc", "limit"):
+        if args.get(key) not in (None, "", {}, []):
+            criteria[key] = args[key]
+    hits = filters.apply(snap["rows"], criteria)
+    return json.dumps({"data_as_of": snap["generated_at"], "universe": snap["universe"], "criteria": filters.validate(criteria),
+                       "matches": len(hits), "stocks": hits, "disclaimer": snap["disclaimer"]}, indent=1)
+
+
+num_map = {"type": "object", "additionalProperties": {"type": "number"}}
+
+STOCK_FILTER = Tool(
+    "stock_filter",
+    "Stock screener over about 600 large US stocks (daily data, refreshed every 20 hours). Turn the request into "
+    "criteria: a preset and/or min/max bounds and true/false flags on these fields: " + filters.describe_fields()
+    + ". Presets: " + ", ".join(filters.PRESETS) + ".",
+    schema({
+        "preset": {"type": "string", "enum": list(filters.PRESETS)},
+        "min": num_map, "max": num_map,
+        "is": {"type": "object", "additionalProperties": {"type": "boolean"}},
+        "tickers": {"type": "array", "items": {"type": "string"}},
+        "sort": string("Numeric field to sort by (default score)"),
+        "desc": {"type": "boolean"}, "limit": {"type": "integer"},
+    }),
+    _filter,
+)
 
 STOCK_ANALYZE = Tool(
     "stock_analyze",

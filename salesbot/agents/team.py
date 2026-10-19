@@ -40,9 +40,14 @@ NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
 MANAGER_PROMPT = """You are the Manager of MyOps, a personal team of AI bot employees that works for one owner.
 The team handles the owner's work and personal operations: research, planning, writing, follow-ups,
 lead generation, reporting and admin. The owner talks to you in chat. Your job:
-- Understand what the owner wants and break it into tasks.
+- Understand what the owner means, not just the words: the goal behind the request, constraints that are
+  obvious from context (their business, location, the people they work with), and typos or shorthand. Pick the
+  sensible reading and say what you assumed; ask one short question only when two readings would give
+  clearly different results.
+- Break it into tasks.
 - Delegate each task to the best-suited bot on the team with delegate_task. Give the bot a complete,
-  self-contained brief; it cannot see this conversation.
+  self-contained brief written as concrete criteria (who or what counts as a good result, where, how many,
+  what to leave out), never just the owner's sentence forwarded; it cannot see this conversation.
 - If no bot on the team fits the work, use hire_bot with a clear job description. The Recruiter will
   design the bot and HR will review it.
 - Retire bots the owner no longer needs with fire_bot.
@@ -141,6 +146,20 @@ and the data keeper. You keep the team healthy and its data clean.
   Before any clean-up that deletes or merges records, run backup_database first.
 - For problems with AI models, keys or the router, say the CTO should look at it; do not guess.
 Finish with what you checked, what you changed, and what the owner should do next, if anything."""
+
+# Added to every hired bot's instructions so it acts on intent instead of literal wording.
+UNDERSTAND_FIRST = """
+
+How to work on any task:
+1. Understand it first: what is the goal behind the words, what would a great result look like, and what would
+   be useless? Use what you know about the owner's business.
+2. Turn that into concrete criteria before using any tool. Search with criteria, never by pasting the task's
+   wording into a search box: use the right fields (industry, size, location, job title, ticker, dates) and
+   include synonyms and related terms (e.g. "logistics" -> freight, trucking, 3PL, warehousing; "decision
+   makers" -> owner, founder, CEO, COO, head of operations).
+3. Check the results against the goal. If they are empty or off-target, change the query (broader, narrower or
+   different terms) and try again, up to three times, before reporting.
+4. In your report, say briefly how you read the task and which criteria you used."""
 
 HR_PROMPT = """You are HR for MyOps, a personal team of AI bot employees. You review candidate bots before they join the team.
 Approve with approve_hire only if: the role matches the job description, the system prompt is clear and
@@ -392,7 +411,8 @@ class Team:
         if spec is None:
             raise ToolError(f"No bot named {bot_name!r} on the team.")
         tools = [CATALOG[t] for t in spec.tools if t in CATALOG]
-        agent = Agent(spec, tools, self.gateway, self.settings, self.store)
+        working = AgentSpec(spec.name, spec.role, spec.system_prompt + UNDERSTAND_FIRST, spec.model, spec.tools)
+        agent = Agent(working, tools, self.gateway, self.settings, self.store)
         task_id = await self.store.log_task(bot_name, task)
         try:
             result = await agent.run(task)

@@ -230,6 +230,29 @@ charge:
 OpenClaw runs with your computer's permissions. Keep its Gateway on localhost or a private
 network, install skills only from sources you trust, and keep sending behind approval.
 
+## Stock screener
+
+`python -m salesbot.research snapshot --top 600` computes screener metrics for the ~600 largest US-listed
+stocks in about 20 seconds (thinly traded lines under $2M a day are skipped): price, 1-day/1/3/6-month
+returns, return vs SPY, RSI, distance from the 52-week high/low and from the breakout pivot, 15-day range,
+volume vs average, dollar volume, ATR, trend checks, breakout score, 50/200-day position and golden cross.
+
+- **Presets:** near breakout, breaking out today, at 52-week highs, strong momentum, pullback in uptrend,
+  volume surge, oversold, golden cross (`--preset "Oversold"` prints one).
+- **Bots:** the `stock_filter` tool takes a preset plus min/max bounds and yes/no flags, so a bot turns a
+  request in plain words into a screen. The snapshot is cached for 20 hours in the data folder.
+- **claude.ai artifact:** a **Screener** tab (presets, editable conditions, sortable results) and a
+  **Screener Analyst** on the Research team: ask the Manager "find strong stocks pulling back" and the
+  analyst works out the filters, loosening them if nothing matches. `--docs file.json` writes the snapshot
+  as documents for the page's `screener` collection; a weekday routine refreshes it after the close.
+
+## Understanding requests
+
+The Manager reads what you mean, not just your words, says what it assumed, and briefs bots with concrete
+criteria. Every hired bot works the same way: it turns the task into criteria before using a tool, searches
+with fields and synonyms instead of pasting the request into a search box, retries with different terms
+when results are off-target, and starts its report with how it read the task.
+
 ## Stock research
 
 `salesbot/research/` is a research engine for a stock-analysis team. It uses real data and needs
