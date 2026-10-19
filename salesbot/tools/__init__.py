@@ -5,7 +5,7 @@ from __future__ import annotations
 from .base import Tool, ToolContext, ToolError
 from .crm import CRM_ADD_LEAD, CRM_EXPORT_CSV, CRM_FIND_LEADS, CRM_UPDATE_LEAD
 from .openclaw import OPENCLAW_BROWSE
-from .stocks import STOCK_ANALYZE, STOCK_SCREEN
+from .stocks import STOCK_ANALYZE, STOCK_FILTER, STOCK_SCREEN
 from .outbound import SEND_EMAIL, SEND_SMS, execute_action
 from .web import WEB_FETCH, WEB_SEARCH
 
@@ -17,6 +17,7 @@ CATALOG: dict[str, Tool] = {
         OPENCLAW_BROWSE,
         STOCK_ANALYZE,
         STOCK_SCREEN,
+        STOCK_FILTER,
         SEND_EMAIL,
         SEND_SMS,
         CRM_ADD_LEAD,

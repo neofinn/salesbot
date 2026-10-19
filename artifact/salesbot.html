@@ -103,6 +103,16 @@ main {
   font-family: var(--display); font-weight: 700; font-size: 15px;
   background: var(--accent-soft); color: var(--accent);
 }
+.screen-conds { display: flex; flex-direction: column; gap: 4px; }
+.screen-cond { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+.screen-cond > span { flex: 1; min-width: 0; }
+.screen-cond input, .screen-cond select { width: auto; flex: 0 0 auto; padding: 4px 6px; font-size: 13px; }
+.screen-cond input { width: 64px; }
+.screen-cond select.add { flex: 1; }
+.screen-table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.screen-table th { text-align: left; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); padding: 4px 2px; }
+.screen-table td { border-bottom: 1px solid var(--line); padding: 4px 2px; }
+.screen-table .up { color: #15803d; } .screen-table .down { color: #b91c1c; }
 .team-group { display: flex; flex-direction: column; gap: 8px; }
 .team-name { font-size: 12px; font-weight: 600; color: var(--muted); margin-top: 4px; }
 .badge.staff .mark { background: var(--staff-soft); color: var(--staff); }
@@ -269,6 +279,7 @@ textarea, input, select {
         <button role="tab" data-sub="outbox" aria-selected="true">Out-tray<span class="count" id="outCount" hidden></span></button>
         <button role="tab" data-sub="tasks" aria-selected="false">Tasks</button>
         <button role="tab" data-sub="reports" aria-selected="false">Reports</button>
+        <button role="tab" data-sub="screener" aria-selected="false">Screener</button>
         <button role="tab" data-sub="notes" aria-selected="false">Notes</button>
         <button role="tab" data-sub="videos" aria-selected="false">Videos</button>
         <button role="tab" data-sub="apps" aria-selected="false">Apps</button>
@@ -279,6 +290,7 @@ textarea, input, select {
     <div class="scroll" id="sub-outbox"></div>
     <div class="scroll" id="sub-tasks" hidden></div>
     <div class="scroll" id="sub-reports" hidden></div>
+    <div class="scroll" id="sub-screener" hidden></div>
     <div class="scroll" id="sub-notes" hidden></div>
     <div class="scroll" id="sub-videos" hidden></div>
     <div class="scroll" id="sub-apps" hidden></div>
@@ -314,6 +326,7 @@ const STAFF = [
   { team: "Development", name: "web_dev", title: "Web Developer", mark: "W", role: "Builds and updates each business's app: one installable web app, previewed in Apps." },
   { team: "Development", name: "android_dev", title: "Android Developer", mark: "A", role: "Packages apps for Android: a native project that builds an installable APK." },
   { team: "Development", name: "ios_dev", title: "iOS Developer", mark: "I", role: "Packages apps for iPhone: home-screen install, and a native Xcode project for TestFlight." },
+  { team: "Research", name: "screener", title: "Screener Analyst", mark: "Q", role: "Screens about 600 US stocks on price, trend, momentum and volume from a request in your own words; results in Screener." },
   { team: "Content", name: "scribe", title: "Scribe", mark: "S", role: "Keeps the record: minutes, decisions, summaries and documents, saved in Notes." },
   { team: "Content", name: "video", title: "Video Producer", mark: "V", role: "Scripts and storyboards short videos, then renders them for you to download." },
   { team: "Maintenance", name: "sysmaint", title: "Systems Maintainer", mark: "Y", role: "Checks the team's health: connections, stuck or failing tasks, bots whose tools can't work." },
@@ -340,7 +353,7 @@ const NAME_RE = /^[a-z][a-z0-9_]{1,31}$/;
 const MAX_ROUNDS = 4;
 
 const S = {
-  bots: [], leads: [], outbox: [], chat: [], tasks: [], reports: [], notes: [], videos: [], apps: [],
+  bots: [], leads: [], outbox: [], chat: [], tasks: [], reports: [], notes: [], videos: [], apps: [], screener: null, screen: null,
   profile: null, loaded: false, editingProfile: false, // who the open profile works for
   root: null, space: "main", spaces: [], unsubs: [], // all profiles, and the one open now
   memory: null, // the open profile's long-term chat memory (config/memory)
@@ -432,7 +445,7 @@ function openSpace(id) {
   S.unsubs = [];
   S.space = id;
   try { localStorage.setItem("myops.space", id); } catch { /* per-viewer convenience only */ }
-  Object.assign(S, { bots: [], tasks: [], leads: [], outbox: [], chat: [], reports: [], notes: [], videos: [], apps: [], profile: null, memory: null, at: null, atNote: "", loaded: false, editingProfile: false });
+  Object.assign(S, { bots: [], tasks: [], leads: [], outbox: [], chat: [], reports: [], notes: [], videos: [], apps: [], screen: null, profile: null, memory: null, at: null, atNote: "", loaded: false, editingProfile: false });
   S.store = scoped(S.root, id);
   const onErr = (e) => { if (e?.code !== "unavailable") setStatus("Live updates stopped. Reload the page.", true); };
   const sub = (c, fn) => S.unsubs.push(S.store.sub(c, fn, onErr));
@@ -447,6 +460,7 @@ function openSpace(id) {
     const cfg = rows.find((r) => r.id === "airtable");
     S.at = cfg && cfg.baseId && cfg.tableId && cfg.fields?.sid ? cfg : null;
     S.memory = rows.find((r) => r.id === "memory") || null;
+    S.screen = rows.find((r) => r.id === "screen") || null;
     const prof = rows.find((r) => r.id === "profile");
     S.profile = prof && prof.company ? prof : null;
     S.loaded = true;
@@ -456,7 +470,7 @@ function openSpace(id) {
     $("tagline").textContent = S.profile
       ? `MyOps for ${S.profile.company}: your personal AI team. Tell the Manager what you need; it hires bots through the Recruiter and HR, delegates the work, and queues every message for your sign-off.`
       : "Your personal AI team. Tell the Manager what you need; it hires bots through the Recruiter and HR, delegates the work, and queues every message for your sign-off.";
-    renderAirtableButtons(); renderConnections(); renderOperation(); renderChat(); renderSpaces();
+    renderAirtableButtons(); renderConnections(); renderOperation(); renderChat(); renderSpaces(); renderScreener();
   });
   sub("outbox", (rows) => { S.outbox = rows; renderOutbox(); });
   sub("chat", (rows) => {
@@ -753,7 +767,7 @@ function fetchEmailButton(l) {
   return b;
 }
 
-function renderAll() { renderTeam(); renderConnections(); renderOperation(); renderChat(); renderOutbox(); renderTasks(); renderReports(); renderNotes(); renderVideos(); renderApps(); renderLeads(); syncCompose(); }
+function renderAll() { renderTeam(); renderConnections(); renderOperation(); renderChat(); renderOutbox(); renderTasks(); renderReports(); renderScreener(); renderNotes(); renderVideos(); renderApps(); renderLeads(); syncCompose(); }
 
 function syncCompose() {
   $("sendBtn").hidden = S.busy; $("stopBtn").hidden = !S.busy;
@@ -830,6 +844,7 @@ function managerPrompt(history, message, results, round) {
   return [
     `You are the Manager of MyOps, ${orgName()}'s personal team of AI bot employees. You work for one owner.`,
     "Your job: understand what the owner wants, delegate the work to bots on the team, hire a bot when nobody fits, retire bots that are no longer needed, and report back clearly.",
+    "Understand the owner, not just their words: work out the goal behind the message, constraints that are obvious from the profile (their business, location, the people they work with), and typos or shorthand. Pick the sensible reading and say in your reply what you assumed; ask one short question only when two readings would give clearly different results. Never forward the owner's sentence as a bot's task: write the brief as concrete criteria (who or what counts as a good result, where, how many, what to leave out).",
     "The team handles the owner's work and personal operations: research, planning and scheduling, writing and email drafts, follow-ups, lead generation, reporting and admin.",
     "",
     "Who you work for:",
@@ -846,10 +861,13 @@ function managerPrompt(history, message, results, round) {
     "- The Video Producer scripts, storyboards and renders short videos (promos, explainers, social clips in 16:9, 9:16 or 1:1) that the owner downloads from the Videos tab. Use a make_video action with the brief: goal, audience, key message, length and format.",
     `- The Development team (Web, Android and iOS developers) builds and updates each business's own app: a self-contained installable web app the owner previews in the Apps tab, downloads, and packages as a native Android/iOS project. Use a build_app action with the brief (which business, who uses it, screens and features, colors); to change an existing app give its app_id. Apps: ${JSON.stringify(S.apps.map((a) => ({ app_id: a.id, name: a.name, version: a.version })))}.`,
     "- The Maintenance team (Systems Maintainer and Data Keeper) checks the team's health: connections, stuck or failing tasks, bots whose tools cannot work, duplicate contacts, stale drafts. Use a maintenance action with mode \"check\" for a health report; use mode \"fix\" only when the owner asks to fix or clean up (it marks stuck tasks failed, merges duplicate contacts and expires drafts older than 30 days).",
+    S.screener?.rows.length
+      ? `- The Screener Analyst screens ${S.screener.rows.length} large US stocks (price, returns, RSI, 52-week high/low, breakout pivot and setup score, volume, moving averages; data as of ${S.screener.meta.generated_at}). Use a screen action with the request in plain words for any stock screening question; it picks the filters itself and the results show in the Screener tab.`
+      : "- The Screener Analyst screens stocks once the research engine has published a market snapshot (none yet): a screen action will say so.",
     "- The CTO answers technical questions (which connections and data are live, why a bot's tool failed, what a job needs set up): use an ask_cto action.",
     "",
     `Team roster (worker bots): ${JSON.stringify(rosterDigest())}`,
-    S.reports.length ? `Research reports: ${S.reports.length}; the latest is "${reportDigest().title}" from ${reportDigest().generated_at} with ${reportDigest().items.length} stocks (${reportDigest().items.map((x) => x.ticker).join(", ")}). Bots granted research_read see its real numbers. No one on the team can fetch new market data: for stocks or dates not in a report, say a new research scan is needed (the owner runs it from Claude Code or a scheduled job).` : "",
+    S.reports.length ? `Research reports: ${S.reports.length}; the latest is "${reportDigest().title}" from ${reportDigest().generated_at} with ${reportDigest().items.length} stocks (${reportDigest().items.map((x) => x.ticker).join(", ")}). Bots granted research_read see its real numbers. For stocks not in the report, use a screen action (the screener snapshot covers about 600 large US stocks); no one on the team can fetch intraday prices or news.` : "",
     S.tasks.length ? `Recent tasks: ${JSON.stringify([...S.tasks].sort((a, b) => (b.n || 0) - (a.n || 0)).slice(0, 8).map((t) => ({ n: t.n, bot: t.bot, status: t.status, brief: short(t.brief, 140), report: short(t.report, 200) })))}` : "",
     `Contact book: ${S.leads.length} contacts${counts.length ? " (" + counts.map(([s, n]) => `${n} ${s}`).join(", ") + ")" : ""}. Out-tray: ${S.outbox.filter((d) => d.status === "pending").length} drafts awaiting approval.`,
     "",
@@ -860,7 +878,7 @@ function managerPrompt(history, message, results, round) {
     results.length ? "\nWhat happened with the actions you already took for this message:\n" + results.map((r, i) => `${i + 1}. ${r}`).join("\n") : "",
     "",
     "Reply with ONLY a JSON object:",
-    '{"reply": "your message to the owner", "actions": [ {"type": "hire", "name": "snake_case_name", "job": "job description"}, {"type": "delegate", "bot": "bot_name", "task": "complete, self-contained brief including every detail the bot needs (names, emails, tone)"}, {"type": "fire", "bot": "bot_name"}, {"type": "ask_cto", "question": "technical question"}, {"type": "scribe", "request": "what to write or update"}, {"type": "make_video", "request": "video brief"}, {"type": "build_app", "request": "app brief", "app_id": "optional, to update an app"}, {"type": "maintenance", "mode": "check"} ]}',
+    '{"reply": "your message to the owner", "actions": [ {"type": "hire", "name": "snake_case_name", "job": "job description"}, {"type": "delegate", "bot": "bot_name", "task": "complete, self-contained brief including every detail the bot needs (names, emails, tone)"}, {"type": "fire", "bot": "bot_name"}, {"type": "ask_cto", "question": "technical question"}, {"type": "scribe", "request": "what to write or update"}, {"type": "make_video", "request": "video brief"}, {"type": "screen", "request": "the screening request, in plain words"}, {"type": "build_app", "request": "app brief", "app_id": "optional, to update an app"}, {"type": "maintenance", "mode": "check"} ]}',
     "Actions run in order, so you may hire a bot and delegate to it in the same list. Delegate to a bot only if it is on the roster or hired earlier in the list.",
     "While actions remain, keep \"reply\" to one short line. When the work is finished, return \"actions\": [] and make \"reply\" your final report: what was done and by whom, the results, and draft numbers waiting in the out-tray. Plain text, no markdown headings.",
     round >= MAX_ROUNDS ? "This is your last round: \"actions\" must be []." : "",
@@ -894,6 +912,7 @@ async function runAction(a, signal) {
   if (type === "ask_cto") return askCto(String(a.question || ""), signal);
   if (type === "scribe") return scribeWrite(String(a.request || ""), signal);
   if (type === "make_video") return produceVideo(String(a.request || ""), signal);
+  if (type === "screen") return screenStocks(String(a.request || ""), signal);
   if (type === "build_app") return buildApp(String(a.request || ""), String(a.app_id || ""), signal);
   if (type === "maintenance") return runMaintenance(a.mode === "fix" ? "fix" : "check", signal);
   if (type === "fire") {
@@ -1363,6 +1382,162 @@ async function runMaintenance(mode, signal) {
   return `maintenance ${mode} (report saved in Notes as "${title}"):\n${lines.join("\n")}`;
 }
 
+// ---------- Stock screener: a market-wide snapshot (root `screener` collection) and filters ----------
+// The snapshot is written by the MyOps research engine (python -m salesbot.research snapshot --docs ...).
+const SCREEN_FIELDS = {
+  price: ["Price", "num", "$"], chg_1d: ["Change today", "num", "%"], ret_1m: ["1-month return", "num", "%"],
+  ret_3m: ["3-month return", "num", "%"], ret_6m: ["6-month return", "num", "%"], rs_6m: ["6-month return vs SPY", "num", "%"],
+  rsi: ["RSI (14)", "num", ""], off_high: ["Below 52-week high", "num", "%"], off_low: ["Above 52-week low", "num", "%"],
+  to_pivot: ["Below breakout pivot", "num", "%"], tight: ["15-day price range", "num", "%"],
+  vol_ratio: ["Volume today vs 50-day avg", "num", "x"], vol_trend: ["10-day vs 50-day volume", "num", "x"],
+  dollar_vol: ["Avg daily dollar volume", "num", "$M"], atr: ["Daily range (ATR)", "num", "%"],
+  trend: ["Trend checks passed (0-4)", "num", ""], score: ["Breakout setup score", "num", ""],
+  above_50: ["Above 50-day average", "bool", ""], above_200: ["Above 200-day average", "bool", ""],
+  golden: ["50-day above 200-day (golden cross)", "bool", ""], near_breakout: ["Near a breakout", "bool", ""],
+  breaking_out: ["Breaking out today", "bool", ""],
+};
+const SCREEN_PRESETS = {
+  "Near breakout": { is: { near_breakout: true }, sort: "score", desc: true },
+  "Breaking out today": { is: { breaking_out: true }, sort: "vol_ratio", desc: true },
+  "At 52-week highs": { max: { off_high: 2 }, sort: "rs_6m", desc: true },
+  "Strong momentum": { min: { ret_6m: 20, rs_6m: 10 }, is: { above_50: true }, sort: "rs_6m", desc: true },
+  "Pullback in uptrend": { min: { trend: 3 }, max: { rsi: 45, off_high: 15 }, is: { above_200: true }, sort: "score", desc: true },
+  "Volume surge": { min: { vol_ratio: 2 }, sort: "vol_ratio", desc: true },
+  "Oversold": { max: { rsi: 30 }, sort: "rsi", desc: false },
+  "Golden cross": { is: { golden: true, above_200: true }, max: { off_high: 10 }, sort: "ret_3m", desc: true },
+};
+const kindOf = (k) => SCREEN_FIELDS[k]?.[1];
+function validateCriteria(c) {
+  const out = { min: {}, max: {}, is: {}, tickers: [], sort: "score", desc: true, limit: 25 };
+  for (const b of ["min", "max"]) for (const [k, v] of Object.entries(c?.[b] || {})) if (kindOf(k) === "num" && v !== "" && v !== null && Number.isFinite(Number(v))) out[b][k] = Number(v);
+  for (const [k, v] of Object.entries(c?.is || {})) if (kindOf(k) === "bool" && typeof v === "boolean") out.is[k] = v;
+  out.tickers = (Array.isArray(c?.tickers) ? c.tickers : []).map((t) => String(t).toUpperCase().trim()).filter(Boolean).slice(0, 50);
+  if (kindOf(c?.sort) === "num") out.sort = c.sort;
+  out.desc = c?.desc !== false;
+  out.limit = Math.max(1, Math.min(100, Number(c?.limit) || 25));
+  return out;
+}
+function applyScreen(rows, criteria) {
+  const c = validateCriteria(criteria), want = new Set(c.tickers);
+  const hits = rows.filter((r) => (!want.size || want.has(r.ticker))
+    && Object.entries(c.min).every(([k, v]) => r[k] != null && r[k] >= v)
+    && Object.entries(c.max).every(([k, v]) => r[k] != null && r[k] <= v)
+    && Object.entries(c.is).every(([k, v]) => !!r[k] === v));
+  const has = hits.filter((r) => r[c.sort] != null).sort((a, b) => (c.desc ? b[c.sort] - a[c.sort] : a[c.sort] - b[c.sort]));
+  return { criteria: c, total: hits.length, rows: [...has, ...hits.filter((r) => r[c.sort] == null)].slice(0, c.limit) };
+}
+function describeCriteria(c) {
+  const f = (k) => SCREEN_FIELDS[k][0], u = (k) => SCREEN_FIELDS[k][2];
+  const parts = [
+    ...Object.entries(c.min).map(([k, v]) => `${f(k)} ≥ ${v}${u(k)}`), ...Object.entries(c.max).map(([k, v]) => `${f(k)} ≤ ${v}${u(k)}`),
+    ...Object.entries(c.is).map(([k, v]) => (v ? f(k) : `not ${f(k).toLowerCase()}`)), c.tickers.length ? `tickers ${c.tickers.join(", ")}` : "",
+  ].filter(Boolean);
+  return `${parts.join(" · ") || "all stocks"} — sorted by ${f(c.sort).toLowerCase()} ${c.desc ? "high to low" : "low to high"}`;
+}
+function loadScreener(docs) {
+  const meta = docs.find((d) => d.id === "meta");
+  if (!meta) { S.screener = null; return renderScreener(); }
+  const rows = [];
+  for (let i = 0; i < (meta.chunks || 0); i++) rows.push(...(docs.find((d) => d.id === `c${i}`)?.rows || []));
+  S.screener = { meta, rows };
+  renderScreener();
+}
+
+// The Screener Analyst: turns a request in the owner's own words into criteria.
+async function screenStocks(request, signal) {
+  if (!request) return "screen: no request given.";
+  if (!S.screener?.rows.length) return "screen: there is no screener data yet. The MyOps research engine has to publish a market snapshot first (it runs on a daily schedule; the owner can also ask for one in Claude Code).";
+  const st = step("Screener Analyst is setting up the screen…");
+  let out;
+  try {
+    out = await askJson([
+      `You are the Screener Analyst of MyOps, ${orgName()}'s team of AI bot employees. You turn a stock-screening request, in the owner's own words, into precise screener criteria.`,
+      `Request: ${request}`,
+      "Work out what the owner means, not just the words: \"about to break out\" is near_breakout; \"cheap\" or \"beaten down\" usually means oversold (low RSI) or far below the 52-week high; \"strong\" or \"leaders\" means strong 6-month returns vs SPY near highs; \"liquid\" means dollar volume. Combine conditions when the request implies several. Keep the screen loose enough to return results (start from the closest preset and add only what the request asks for).",
+      `Fields (key: label, kind, unit): ${Object.entries(SCREEN_FIELDS).map(([k, [l, kd, u]]) => `${k}: ${l}, ${kd}${u ? ", " + u : ""}`).join("; ")}.`,
+      `Presets (JSON): ${JSON.stringify(SCREEN_PRESETS)}`,
+      "The data has only these technical fields for about 600 large US-listed stocks: there are no sectors, valuations or fundamentals. If the request needs those, screen what you can and say what is missing in the explanation.",
+      'Reply with ONLY a JSON object: {"criteria": {"min": {}, "max": {}, "is": {}, "tickers": [], "sort": "score", "desc": true, "limit": 25}, "explanation": "one or two sentences: how you read the request and what the screen does"}',
+    ].join("\n\n"), signal);
+  } catch (e) { st.fail("Screener Analyst couldn't finish"); if (e?.code === "cancelled") throw e; return `screen failed (${errText(e)}).`; }
+  let res = applyScreen(S.screener.rows, out?.criteria || {});
+  let note = "";
+  if (!res.total) {
+    // Too strict: drop conditions one by one (last-added first) until something matches.
+    const c = JSON.parse(JSON.stringify(res.criteria)), dropped = [];
+    const order = [...Object.keys(c.is).map((k) => ["is", k]), ...Object.keys(c.min).map((k) => ["min", k]), ...Object.keys(c.max).map((k) => ["max", k])].reverse();
+    for (const [b, k] of order) {
+      delete c[b][k]; dropped.push(SCREEN_FIELDS[k][0]);
+      const r = applyScreen(S.screener.rows, c);
+      if (r.total) { res = r; note = ` Nothing matched every condition, so the screen dropped: ${dropped.join(", ")}.`; break; }
+    }
+  }
+  const explanation = String(out?.explanation || "").slice(0, 400) + note;
+  S.screen = { request: request.slice(0, 300), criteria: res.criteria, explanation, at: Date.now() };
+  S.store.set("config", "screen", S.screen).catch(() => {});
+  renderScreener();
+  st.done(`Screener Analyst: ${res.total} match${res.total === 1 ? "" : "es"} (${describeCriteria(res.criteria)})`);
+  const keys = ["ticker", "name", "price", "chg_1d", "ret_3m", "rs_6m", "rsi", "off_high", "to_pivot", "vol_ratio", "score", "near_breakout", "breaking_out"];
+  return `screen: ${explanation} Data as of ${S.screener.meta.generated_at} (${S.screener.meta.universe}). ${res.total} matches; top ${Math.min(15, res.rows.length)} (JSON): ${JSON.stringify(res.rows.slice(0, 15).map((r) => Object.fromEntries(keys.map((k) => [k, r[k]]))))}. The full list is in the Screener tab. Research only, not financial advice.`;
+}
+
+function renderScreener() {
+  const box = $("sub-screener");
+  if (!box) return;
+  if (!S.screener?.rows.length) {
+    box.replaceChildren(el("p", { className: "muted", style: "font-size:13px", textContent: "The stock screener needs a market snapshot from the MyOps research engine (about 600 large US stocks, refreshed every weekday after the close). Once it arrives, pick a preset or ask the Manager, e.g. \"find strong stocks pulling back to support\"." }));
+    return;
+  }
+  const crit = validateCriteria(S.screen?.criteria || SCREEN_PRESETS["Near breakout"]);
+  const set = (c, request = "") => { S.screen = { request, criteria: validateCriteria(c), explanation: "", at: Date.now() }; S.store.set("config", "screen", S.screen).catch(() => {}); renderScreener(); };
+  const chips = el("div", { style: "display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px" }, ...Object.keys(SCREEN_PRESETS).map((name) =>
+    el("button", { className: "btn ghost small", type: "button", textContent: name, onclick: () => set({ ...SCREEN_PRESETS[name], limit: crit.limit }) })));
+  // One editable line per condition.
+  const conds = [
+    ...Object.keys(SCREEN_FIELDS).filter((k) => kindOf(k) === "num" && (k in crit.min || k in crit.max)).map((k) => ({ k, min: crit.min[k], max: crit.max[k] })),
+    ...Object.entries(crit.is).map(([k, v]) => ({ k, is: v })),
+  ];
+  const update = (fn) => { const c = JSON.parse(JSON.stringify(crit)); fn(c); set(c); };
+  const condRow = (x) => {
+    const rm = el("button", { className: "fire", type: "button", textContent: "×", title: "Remove", onclick: () => update((c) => { delete c.min[x.k]; delete c.max[x.k]; delete c.is[x.k]; }) });
+    if (kindOf(x.k) === "bool") {
+      const sel = el("select", {}, el("option", { value: "1", textContent: "yes", selected: x.is }), el("option", { value: "0", textContent: "no", selected: !x.is }));
+      sel.onchange = () => update((c) => { c.is[x.k] = sel.value === "1"; });
+      return el("div", { className: "screen-cond" }, el("span", { textContent: SCREEN_FIELDS[x.k][0] }), sel, rm);
+    }
+    const num = (b) => { const i = el("input", { type: "number", step: "any", value: x[b] ?? "", placeholder: b, style: "width:64px" }); i.onchange = () => update((c) => { if (i.value === "") delete c[b][x.k]; else c[b][x.k] = Number(i.value); }); return i; };
+    return el("div", { className: "screen-cond" }, el("span", { textContent: `${SCREEN_FIELDS[x.k][0]}${SCREEN_FIELDS[x.k][2] ? ` (${SCREEN_FIELDS[x.k][2]})` : ""}` }), num("min"), num("max"), rm);
+  };
+  const add = el("select", { className: "add" }, el("option", { value: "", textContent: "+ Add condition…" }),
+    ...Object.entries(SCREEN_FIELDS).filter(([k]) => !(k in crit.min || k in crit.max || k in crit.is)).map(([k, [l]]) => el("option", { value: k, textContent: l })));
+  add.onchange = () => update((c) => { if (kindOf(add.value) === "bool") c.is[add.value] = true; else c.min[add.value] = 0; });
+  const sort = el("select", {}, ...Object.entries(SCREEN_FIELDS).filter(([, [, kd]]) => kd === "num").map(([k, [l]]) => el("option", { value: k, textContent: `Sort: ${l}`, selected: k === crit.sort })));
+  sort.onchange = () => update((c) => { c.sort = sort.value; });
+  const dir = el("button", { className: "btn ghost small", type: "button", textContent: crit.desc ? "High → low" : "Low → high", onclick: () => update((c) => { c.desc = !c.desc; }) });
+  const res = applyScreen(S.screener.rows, { ...crit, limit: 100 });
+  const fmt = (v, d = 1) => (v == null ? "–" : Number(v).toFixed(d));
+  const table = el("table", { className: "screen-table" },
+    el("tr", {}, ...["Ticker", "Price", "Today", "3m", "RSI", "Score"].map((h) => el("th", { textContent: h }))),
+    ...res.rows.flatMap((r) => {
+      const detail = el("tr", { hidden: true }, el("td", { colSpan: 6, className: "muted", style: "font-size:12px",
+        textContent: `${r.name} · ${r.near_breakout ? (r.breaking_out ? "breaking out · " : "near breakout · ") : ""}${fmt(r.off_high)}% below 52w high · ${fmt(r.to_pivot)}% below pivot · 6m ${fmt(r.ret_6m)}% (${fmt(r.rs_6m)}% vs SPY) · volume ${fmt(r.vol_ratio, 2)}x · $${fmt(r.dollar_vol, 0)}M/day · trend ${r.trend}/4 · ${r.above_200 ? "above" : "below"} 200-day` }));
+      const line = el("tr", { style: "cursor:pointer", title: r.name, onclick: () => { detail.hidden = !detail.hidden; } },
+        el("td", { style: "font-weight:600", textContent: r.ticker }), el("td", { textContent: fmt(r.price, 2) }),
+        el("td", { className: (r.chg_1d || 0) >= 0 ? "up" : "down", textContent: `${fmt(r.chg_1d)}%` }),
+        el("td", { className: (r.ret_3m || 0) >= 0 ? "up" : "down", textContent: `${fmt(r.ret_3m)}%` }),
+        el("td", { textContent: fmt(r.rsi, 0) }), el("td", { textContent: r.score ?? "–" }));
+      return [line, detail];
+    }));
+  box.replaceChildren(...[
+    el("div", { className: "muted", style: "font-size:12px;margin-bottom:6px", textContent: `Data as of ${S.screener.meta.generated_at} · ${S.screener.rows.length} stocks · research only, not financial advice` }),
+    chips,
+    S.screen?.request ? el("div", { style: "font-size:13px;margin-bottom:6px" }, el("strong", { textContent: "Asked: " }), `${S.screen.request}${S.screen.explanation ? " — " + S.screen.explanation : ""}`) : null,
+    el("div", { className: "screen-conds" }, ...conds.map(condRow), el("div", { className: "screen-cond" }, add)),
+    el("div", { style: "display:flex;gap:6px;align-items:center;margin:6px 0" }, sort, dir),
+    el("div", { style: "font-size:13px;margin:6px 0", textContent: `${res.total} match${res.total === 1 ? "" : "es"}${res.total > 100 ? " (top 100 shown)" : ""} · ${describeCriteria(res.criteria)}` }),
+    res.rows.length ? table : el("p", { className: "muted", style: "font-size:13px", textContent: "Nothing matches. Remove a condition or loosen a bound." })].filter(Boolean));
+}
+
 // CTO: the live technical picture, technical questions, and a tools check on every hire.
 function techStatus() {
   const latest = reportsByDate()[0];
@@ -1530,6 +1705,12 @@ async function callClay(tool, input, signal) {
   const r = await S.mcp.callTool(CLAY, tool, input, signal ? { signal } : undefined);
   return slimClay(r.payload);
 }
+const UNDERSTAND_FIRST = [
+  "How to work: 1) Understand the task first: the goal behind the words, what a great result looks like and what would be useless, using what you know about the owner's business.",
+  "2) Turn it into concrete criteria before using any tool. Search with criteria, never by pasting the task's wording into a query: use the right fields (industry, what the company does, size, place, job title) with synonyms and related terms (e.g. \"logistics\" -> freight, trucking, 3PL, warehousing; \"decision makers\" -> owner, founder, CEO, COO, head of operations).",
+  "3) Check results against the goal; if they are empty or off-target, change the query (broader, narrower or different terms) and try again, up to three times, before reporting.",
+  "4) Start your report with one line on how you read the task and the criteria you used.",
+].join(" ");
 const DSL_HELP = [
   'Clay Search DSL. Companies: "select from companies where ... limit N". Useful company fields:',
   'products_and_services is_similar_to ("dental clinic", "orthodontics") (semantic match on what they do);',
@@ -1538,6 +1719,7 @@ const DSL_HELP = [
   'People: "select from people where experiences.any(is_current = true and job_title is_similar_to (\"Office Manager\", \"Owner\")) limit N",',
   'plus location_state = "Texas" or location_country = "United States". Combine with and/or and parentheses.',
   'Always add a limit (10-25) to save the owner\'s Clay credits.',
+  'Write queries from concepts, not the request\'s wording: give is_similar_to several short terms and synonyms, e.g. ("freight brokerage", "trucking", "3PL", "warehousing"), and several job-title variants.',
 ].join(" ");
 async function clayToolsFor(botName, kinds = { leads: true, research: false }) {
   if (!S.mcp || S.clay === "absent") return null;
@@ -1819,7 +2001,9 @@ async function delegateWork(bot, task, signal) {
       canRead ? `Contact book (JSON): ${JSON.stringify(leadDigest())}` : "",
       tools.has("research_read") && reportDigest() ? `Latest research report (real market data; use only these numbers, never invent prices or financials, and note the report date):\n${JSON.stringify(reportDigest())}` : "",
       tools.has("research_read") && !reportDigest() ? "There is no research report yet: say so and do not invent market data." : "",
+      tools.has("research_read") && S.screener?.rows.length ? `Stock screener snapshot (${S.screener.meta.generated_at}, ${S.screener.rows.length} stocks); top setups by score (JSON): ${JSON.stringify(applyScreen(S.screener.rows, { sort: "score", limit: 30 }).rows)}` : "",
       `Task from the Manager:\n${task}`,
+      UNDERSTAND_FIRST,
       "Do the task now. Never invent contact details: only use addresses and numbers given to you or already in the contact book. Leave lists empty when there is nothing to add.",
       `Reply with ONLY a JSON object in this shape: ${JSON.stringify(shape)}`,
     ].filter(Boolean).join("\n\n"), signal, clayTools.length ? clayTools : null);
@@ -1971,7 +2155,7 @@ $("atImportBtn").addEventListener("click", (e) => importFromAirtable(e.currentTa
 $("atSetupBtn").addEventListener("click", (e) => setupAirtable(e.currentTarget));
 document.querySelectorAll(".subtabs button").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll(".subtabs button").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
-  for (const k of ["outbox", "tasks", "reports", "notes", "videos", "apps", "leads"]) $(`sub-${k}`).hidden = b.dataset.sub !== k;
+  for (const k of ["outbox", "tasks", "reports", "screener", "notes", "videos", "apps", "leads"]) $(`sub-${k}`).hidden = b.dataset.sub !== k;
   $("rightMeta").hidden = b.dataset.sub !== "leads";
 }));
 function showPane(id) {
@@ -2003,6 +2187,7 @@ renderAll();
   if (!mcp) S.atState = "absent";
   else mcp.listTools(AIRTABLE).then((r) => { S.atState = r?.servers?.length && r.servers[0].tools?.length ? "available" : "absent"; renderConnections(); renderAirtableButtons(); })
     .catch(() => { S.atState = "absent"; renderConnections(); renderAirtableButtons(); });
+  S.root.sub("screener", loadScreener, () => {});
   S.root.sub("spaces", (rows) => {
     S.spaces = rows;
     // The open profile was deleted (here or by someone else): go back to the main one.
