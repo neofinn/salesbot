@@ -255,6 +255,25 @@ position and golden cross.
   file.json` writes the snapshot as documents for the page's `screener` collection (`<market>_meta`,
   `<market>_c0`, ...); weekday routines refresh India after the NSE close and US penny stocks after the US close.
 
+## Phone app
+
+`mobile/` is MyOps as a self-contained Android and iOS app: the team runs on the phone with two sign-ins,
+a MyOps account (email and password or Google, synced across phones) and your AI (OpenRouter sign-in or an
+API key for Claude, GPT, Gemini, Grok, DeepSeek, Mistral, Groq, Qwen, Perplexity, Together, Cohere or
+Ollama), plus **Connect OpenClaw**: one command sets up OpenClaw on your computer or a cloud server and
+pairs it with the phone. See [mobile/README.md](mobile/README.md).
+
+## Direct AI chat and Developer mode
+
+- **Direct AI:** the chat pane switches between **Manager** (the team) and **Direct AI**, a plain multi-turn
+  conversation with the model the team runs on, kept in its own history.
+- **Developer mode** (Team pane > Developer): describe a change and the Web Developer makes it as a
+  customization you preview, keep or discard: CSS for the look, quick-action buttons above the chat, and
+  custom panels in a Custom tab (self-contained HTML in a sandboxed frame with no access to the app's data or
+  keys). Versions are kept (last 10) and can be switched or turned off; tapping the MyOps logo five times, or
+  `?safe=1`, starts in safe mode. **Request a bigger change** sends the CTO's written-up request to the
+  `dev_requests` collection for the MyOps dev bots, who ship it in the next app update.
+
 ## Prompt converter
 
 Rough messages become precise instructions: **Make precise** (web app and artifact) rewrites what you typed,

@@ -1,0 +1,46 @@
+name: MyOps phone app
+
+on:
+  push:
+    branches: [main]
+    paths: ["mobile/**", "artifact/salesbot.html", ".github/workflows/myops-app.yml"]
+  pull_request:
+    paths: ["mobile/**", "artifact/salesbot.html", ".github/workflows/myops-app.yml"]
+  workflow_dispatch:
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: mobile } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - run: npm install --no-audit --no-fund
+      - run: npm run android
+      - run: cd android && ./gradlew assembleDebug --no-daemon
+      - run: cp android/app/build/outputs/apk/debug/app-debug.apk MyOps.apk
+      - uses: actions/upload-artifact@v4
+        with: { name: MyOps-android-apk, path: mobile/MyOps.apk }
+
+  ios:
+    runs-on: macos-latest
+    defaults: { run: { working-directory: mobile } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install --no-audit --no-fund
+      - run: npm run ios
+      - name: Build an unsigned app (sign it with your Apple ID to install)
+        run: |
+          cd ios/App
+          xcodebuild -workspace App.xcworkspace -scheme App -configuration Release -sdk iphoneos \
+            -archivePath "$RUNNER_TEMP/MyOps.xcarchive" archive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -R "$RUNNER_TEMP/MyOps.xcarchive/Products/Applications/App.app" "$RUNNER_TEMP/Payload/"
+          cd "$RUNNER_TEMP" && zip -qr "$GITHUB_WORKSPACE/mobile/MyOps-unsigned.ipa" Payload
+      - uses: actions/upload-artifact@v4
+        with: { name: MyOps-ios-unsigned-ipa, path: mobile/MyOps-unsigned.ipa }

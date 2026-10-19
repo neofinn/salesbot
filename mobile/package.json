@@ -1,0 +1,27 @@
+{
+  "name": "myops-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MyOps as a self-contained Android and iOS app: your AI team runs on the phone with your own AI login or key.",
+  "scripts": {
+    "build": "node build.mjs",
+    "android": "npm run build && npx cap add android && node patch-native.mjs android && npm run assets -- --android && npx cap sync android",
+    "ios": "npm run build && npx cap add ios && node patch-native.mjs ios && npm run assets -- --ios && npx cap sync ios",
+    "assets": "capacitor-assets generate --iconBackgroundColor '#18212b' --iconBackgroundColorDark '#18212b' --splashBackgroundColor '#f4f1ea' --splashBackgroundColorDark '#18212b'"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.4.0",
+    "@capacitor/app": "^7.0.1",
+    "@capacitor/browser": "^7.0.1",
+    "@capacitor/core": "^7.4.0",
+    "@capacitor/filesystem": "^7.1.1",
+    "@capacitor/ios": "^7.4.0",
+    "@capacitor/share": "^7.0.1",
+    "@supabase/supabase-js": "^2.49.4"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^7.4.0",
+    "esbuild": "^0.25.0"
+  }
+}
