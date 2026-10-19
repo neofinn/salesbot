@@ -232,19 +232,36 @@ network, install skills only from sources you trust, and keep sending behind app
 
 ## Stock screener
 
-`python -m salesbot.research snapshot --top 600` computes screener metrics for the ~600 largest US-listed
-stocks in about 20 seconds (thinly traded lines under $2M a day are skipped): price, 1-day/1/3/6-month
-returns, return vs SPY, RSI, distance from the 52-week high/low and from the breakout pivot, 15-day range,
-volume vs average, dollar volume, ATR, trend checks, breakout score, 50/200-day position and golden cross.
+`python -m salesbot.research snapshot --market in|us_penny` builds a screener snapshot from daily prices:
+
+- **India (`in`, default):** every stock on NSE (the exchange's own equity list), pre-filtered with one cheap
+  quote per stock and kept when it trades at least ₹10M a day: about 1,500 stocks in under a minute. Nifty 500
+  stocks carry their industry as a sector. Benchmark: Nifty 50.
+- **US penny stocks (`us_penny`):** every common stock on Nasdaq, NYSE, NYSE American and Cboe (no ETFs,
+  warrants, units or rights) priced $0.10 to $5 with at least $0.5M traded a day: about 800 stocks in about
+  20 seconds. Benchmark: Russell 2000 (IWM). `us` (largest US companies) is still available.
+
+Metrics: price, 1-day/1/3/6-month returns, return vs the index, RSI, distance from the 52-week high/low and from
+the breakout pivot, 15-day range, volume vs average, turnover, ATR, trend checks, breakout score, 50/200-day
+position and golden cross.
 
 - **Presets:** near breakout, breaking out today, at 52-week highs, strong momentum, pullback in uptrend,
-  volume surge, oversold, golden cross (`--preset "Oversold"` prints one).
-- **Bots:** the `stock_filter` tool takes a preset plus min/max bounds and yes/no flags, so a bot turns a
-  request in plain words into a screen. The snapshot is cached for 20 hours in the data folder.
-- **claude.ai artifact:** a **Screener** tab (presets, editable conditions, sortable results) and a
-  **Screener Analyst** on the Research team: ask the Manager "find strong stocks pulling back" and the
-  analyst works out the filters, loosening them if nothing matches. `--docs file.json` writes the snapshot
-  as documents for the page's `screener` collection; a weekday routine refreshes it after the close.
+  volume surge, oversold, golden cross, most active (`--preset "Oversold"` prints one).
+- **Bots:** the `stock_filter` tool takes a market, a preset, min/max bounds, yes/no flags and sectors, so a
+  bot turns a request in plain words into a screen. Snapshots are cached for 20 hours in the data folder.
+- **claude.ai artifact:** a **Screener** tab (market switch, presets, sector and other conditions, sortable
+  results) and a **Screener Analyst** on the Research team: ask the Manager "strong Indian pharma stocks
+  pulling back" and the analyst picks the market and filters, loosening them if nothing matches. `--docs
+  file.json` writes the snapshot as documents for the page's `screener` collection (`<market>_meta`,
+  `<market>_c0`, ...); weekday routines refresh India after the NSE close and US penny stocks after the US close.
+
+## Prompt converter
+
+Rough messages become precise instructions: **Make precise** (web app and artifact) rewrites what you typed,
+fixing typos and Hinglish, resolving "it"/"same as before" from the chat, and spelling out market, numbers,
+time frame and answer format, with anything it had to guess marked "(assumed: ...)". Review or undo it, then
+send. In the artifact, **Auto** does this for every message and shows "Understood as: ..." under it.
+`POST /api/refine {"text": ...}` returns `{"prompt": ...}`.
 
 ## Understanding requests
 

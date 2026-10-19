@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import os
 import re
 import time
@@ -14,6 +16,11 @@ from .technicals import Bars
 
 YAHOO = "https://{host}.finance.yahoo.com/v8/finance/chart/{symbol}"
 SEC_TICKERS = "https://www.sec.gov/files/company_tickers.json"
+YAHOO_SPARK = "https://{host}.finance.yahoo.com/v7/finance/spark"
+NSE_EQUITIES = "https://archives.nseindia.com/content/equities/EQUITY_L.csv"
+NSE_NIFTY500 = "https://archives.nseindia.com/content/indices/ind_nifty500list.csv"
+NASDAQ_LISTED = "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt"
+OTHER_LISTED = "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt"
 SEC_FACTS = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 # SEC asks automated clients to identify themselves with a contact.
 SEC_UA = os.environ.get("SEC_USER_AGENT", "MyOps stock research contact@example.com")
@@ -68,6 +75,78 @@ async def universe(client: httpx.AsyncClient, top: int) -> list[dict[str, Any]]:
         if len(out) >= top:
             break
     return out
+
+
+async def _text(client: httpx.AsyncClient, url: str, what: str) -> str:
+    resp = await client.get(url, headers={"User-Agent": SEC_UA})
+    if resp.status_code != 200:
+        raise DataError(f"{what} unavailable ({resp.status_code})")
+    return resp.text
+
+
+async def nse_universe(client: httpx.AsyncClient) -> list[dict[str, Any]]:
+    """Every equity listed on India's NSE (EQ and BE series), with the Nifty 500 industry where known.
+    Tickers are Yahoo symbols (RELIANCE.NS)."""
+    sectors: dict[str, str] = {}
+    try:
+        for row in csv.DictReader(io.StringIO(await _text(client, NSE_NIFTY500, "Nifty 500 list"))):
+            sectors[row["Symbol"].strip()] = row["Industry"].strip()
+    except DataError:
+        pass  # sectors are a bonus; the equity list is what matters
+    out = []
+    for row in csv.DictReader(io.StringIO(await _text(client, NSE_EQUITIES, "NSE equity list"))):
+        row = {k.strip(): (v or "").strip() for k, v in row.items() if k}
+        if row.get("SERIES") not in ("EQ", "BE"):
+            continue
+        sym = row["SYMBOL"]
+        out.append({"ticker": f"{sym}.NS", "name": row.get("NAME OF COMPANY", ""), "sector": sectors.get(sym, "")})
+    return out
+
+
+SKIP_NAMES = re.compile(r"\b(warrants?|units?|rights?|preferred|depositary shares? representing|notes due|debentures?|%)\b", re.I)
+
+
+async def us_listed(client: httpx.AsyncClient) -> list[dict[str, Any]]:
+    """Common stocks listed on US exchanges (Nasdaq, NYSE, NYSE American, Cboe), no ETFs or test issues."""
+    out, seen = [], set()
+    for url, sym_col, name_col in ((NASDAQ_LISTED, "Symbol", "Security Name"), (OTHER_LISTED, "ACT Symbol", "Security Name")):
+        lines = (await _text(client, url, "US symbol directory")).splitlines()
+        for row in csv.DictReader(lines[:-1], delimiter="|"):  # the last line is a file timestamp
+            sym = (row.get(sym_col) or "").strip()
+            if (row.get("ETF") == "Y" or row.get("Test Issue") == "Y" or not re.fullmatch(r"[A-Z]{1,5}", sym)
+                    or SKIP_NAMES.search(row.get(name_col) or "") or sym in seen):
+                continue
+            seen.add(sym)
+            out.append({"ticker": sym, "name": (row.get(name_col) or "").split(" - ")[0].replace(" Common Stock", "").strip(), "sector": ""})
+    return out
+
+
+async def quotes(client: httpx.AsyncClient, symbols: list[str]) -> dict[str, tuple[float, float]]:
+    """Last price and volume for many symbols at once (Yahoo spark, 20 symbols per call)."""
+    async def batch(chunk: list[str]) -> dict[str, tuple[float, float]]:
+        for attempt in range(4):
+            resp = await client.get(YAHOO_SPARK.format(host=("query1", "query2")[attempt % 2]),
+                                    params={"symbols": ",".join(chunk), "range": "1d", "interval": "1d"},
+                                    headers={"User-Agent": SEC_UA})
+            if resp.status_code != 429:
+                break
+            await asyncio.sleep(1.5 * (attempt + 1))
+        if resp.status_code != 200:
+            raise DataError(f"quotes unavailable ({resp.status_code})")
+        out = {}
+        for r in (resp.json().get("spark") or {}).get("result") or []:
+            try:
+                meta = r["response"][0]["meta"]
+                out[r["symbol"]] = (float(meta["regularMarketPrice"]), float(meta.get("regularMarketVolume") or 0))
+            except (KeyError, IndexError, TypeError, ValueError):
+                continue
+        return out
+
+    found: dict[str, tuple[float, float]] = {}
+    for res in await gather_limited([batch(symbols[i:i + 20]) for i in range(0, len(symbols), 20)]):
+        if isinstance(res, dict):
+            found.update(res)
+    return found
 
 
 async def cik_for(client: httpx.AsyncClient, ticker: str) -> tuple[int, str] | None:
