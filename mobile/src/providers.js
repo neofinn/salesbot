@@ -20,8 +20,8 @@ export const PROVIDERS = [
   { id: "perplexity", name: "Perplexity", kind: "openai", base: "https://api.perplexity.ai", keyUrl: "https://www.perplexity.ai/settings/api", models: ["sonar-pro", "sonar"] },
   { id: "together", name: "Together AI", kind: "openai", base: "https://api.together.xyz/v1", keyUrl: "https://api.together.ai/settings/api-keys", prefer: ["Llama-3.3-70B", "Qwen"], skip: /embed|image|flux|whisper/ },
   { id: "cohere", name: "Cohere", kind: "openai", base: "https://api.cohere.ai/compatibility/v1", keyUrl: "https://dashboard.cohere.com/api-keys", models: ["command-a-03-2025", "command-r-plus"] },
-  { id: "openclaw", name: "OpenClaw (Clawdbot)", kind: "openai", base: "http://192.168.1.10:18789/v1", customBase: true, models: ["openclaw:main"],
-    tokenLabel: "Gateway token", note: "Your own OpenClaw agent runs the team (it can browse the web)." },
+  { id: "openclaw", name: "OpenClaw (Clawdbot)", kind: "openai", base: "http://192.168.1.10:18789/v1", customBase: true, models: ["openclaw"],
+    tokenLabel: "pairing code or Gateway token", note: "Your own OpenClaw agent runs the team (it can browse the web)." },
   { id: "ollama", name: "Ollama (your own computer)", kind: "openai", base: "http://192.168.1.10:11434/v1", noKey: true, customBase: true, prefer: ["qwen", "llama"] },
 ];
 
@@ -118,4 +118,13 @@ export async function openRouterFinish(code, verifier) {
     body: JSON.stringify({ code, code_verifier: verifier, code_challenge_method: "S256" }) });
   if (!j.key) throw new AIError("bad_key", "OpenRouter didn't return a key.");
   return j.key;
+}
+
+// Pairing codes from the MyOps OpenClaw setup: "myops-oc:" + base64url({"u": address, "t": token}).
+export function decodePairing(code) {
+  try {
+    const b = String(code).trim().replace(/^myops-oc:/, "").replace(/-/g, "+").replace(/_/g, "/");
+    const v = JSON.parse(atob(b + "=".repeat((4 - (b.length % 4)) % 4)));
+    return v?.u && v?.t ? { url: String(v.u), token: String(v.t) } : null;
+  } catch { return null; }
 }

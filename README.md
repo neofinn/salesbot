@@ -260,7 +260,8 @@ position and golden cross.
 `mobile/` is MyOps as a self-contained Android and iOS app: the team runs on the phone with two sign-ins,
 a MyOps account (email and password or Google, synced across phones) and your AI (OpenRouter sign-in or an
 API key for Claude, GPT, Gemini, Grok, DeepSeek, Mistral, Groq, Qwen, Perplexity, Together, Cohere or
-Ollama). See [mobile/README.md](mobile/README.md).
+Ollama), plus **Connect OpenClaw**: one command sets up OpenClaw on your computer or a cloud server and
+pairs it with the phone. See [mobile/README.md](mobile/README.md).
 
 ## Prompt converter
 

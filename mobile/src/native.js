@@ -3,7 +3,8 @@
 // person (user) and the phone's share sheet (downloads). Loaded before the page's own script.
 import { Directory, Filesystem } from "@capacitor/filesystem";
 import { Share } from "@capacitor/share";
-import { AIError, complete, provider } from "./providers.js";
+import { App } from "@capacitor/app";
+import { AIError, complete, decodePairing, provider } from "./providers.js";
 import { clearAI, currentUser, isNative, loadAI, supabase } from "./session.js";
 
 const ready = (async () => {
@@ -162,7 +163,7 @@ Use your browser and web tools to answer the task. Rules:
 Reply with your findings as plain text: short, structured, with sources.`;
 const openClawHelper = (link) => ({
   async browse(task, signal) {
-    const cfg = { provider: "openclaw", base: link.url, key: link.token, model: `openclaw:${link.agent || "main"}` };
+    const cfg = { provider: "openclaw", base: link.url, key: link.token, model: "openclaw" };
     return complete(cfg, [{ role: "user", content: `${OC_BRIEF}\n\nTask: ${task}` }], { signal });
   },
 });
@@ -192,43 +193,84 @@ const caps = {
 window.claude = Object.freeze({ use: (name) => (caps[name] ? caps[name]() : Promise.resolve(null)) });
 
 // ---------- account button: who is signed in, which AI, sign out ----------
+const SETUP_CMD = "curl -fsSL https://bsvahyfzpfnhkyzgmoow.supabase.co/functions/v1/openclaw-setup | bash";
+
+async function linkOpenClaw(link) {
+  await complete({ provider: "openclaw", base: link.url, key: link.token, model: "openclaw" }, "Reply with OK.", { maxTokens: 5 });
+  localStorage.setItem(OC_KEY, JSON.stringify({ agent: "main", ...link }));
+}
+
+// The Connect OpenClaw screen: run it on this computer, on a cloud server, or link one that already runs.
+function openClawSheet() {
+  const sheet = document.createElement("div");
+  sheet.className = "myops-sheet";
+  const linked = loadOpenClaw();
+  sheet.innerHTML = `<div class="card">
+    <div class="hero"><b>OpenClaw</b><span>formerly Clawdbot</span></div>
+    <p class="lead">Your own AI agent with a real browser and memory. Connect it and the Manager can send it web research. It reads only: no logins, purchases, posts or messages.</p>
+    <div class="state"></div>
+    <h3>Choose where to run it</h3>
+    <div class="opt"><b>On my computer</b><p>Mac, Linux, or Windows with WSL2. Your computer must stay on while you use it.</p>
+      <p class="step">1. Install <a href="https://tailscale.com/download" target="_blank">Tailscale</a> on the computer and on this phone, signed in to the same account (free, keeps the link private).</p>
+      <p class="step">2. Open a terminal on the computer and run:</p>
+      <code class="cmd"></code><button data-a="copy">Copy command</button>
+      <p class="step">3. Scan the QR code it shows with this phone's camera, or paste its pairing code below.</p></div>
+    <div class="opt"><b>On a cloud server</b><p>Online 24/7. Any Ubuntu server works, for example Hetzner, DigitalOcean, AWS Lightsail or Oracle Cloud's free tier.</p>
+      <p class="step">1. Create the server, log in with SSH, and set up Tailscale there: <code>curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up</code></p>
+      <p class="step">2. Run the same command on the server, then paste the pairing code below.</p></div>
+    <div class="opt"><b>Link existing OpenClaw</b><p>Already running OpenClaw or a hosted one such as Kimi Claw? Paste a pairing code, or its Gateway address and token.</p>
+      <input class="code" placeholder="myops-oc:… pairing code" spellcheck="false" autocapitalize="off">
+      <details><summary>Use address and token instead</summary><input class="url" placeholder="https://my-pc.tailnet.ts.net/v1" spellcheck="false" autocapitalize="off"><input class="tok" type="password" placeholder="Gateway token"></details>
+      <button data-a="link" class="primary">Test and link</button></div>
+    <div class="row-btns">${linked && localStorage.getItem(OC_KEY) ? '<button data-a="unlink">Unlink</button>' : ""}<button data-a="close">Close</button></div>
+  </div>`;
+  sheet.querySelector(".cmd").textContent = SETUP_CMD;
+  sheet.querySelector(".state").textContent = linked ? `Linked: ${linked.url}` : "Not linked yet.";
+  if (!linked) sheet.querySelector(".state").style.color = "#5b6470";
+  sheet.addEventListener("click", async (e) => {
+    const a = e.target.dataset?.a;
+    if (a === "close" || e.target === sheet) sheet.remove();
+    if (a === "copy") { try { await navigator.clipboard.writeText(SETUP_CMD); e.target.textContent = "Copied"; } catch { e.target.textContent = "Select the command and copy it"; } }
+    if (a === "unlink") { localStorage.removeItem(OC_KEY); location.reload(); }
+    if (a === "link") {
+      const code = sheet.querySelector(".code").value.trim();
+      const link = code ? decodePairing(code) : { url: sheet.querySelector(".url").value.trim(), token: sheet.querySelector(".tok").value.trim() };
+      if (!link?.url || !link?.token) return alert(code ? "That pairing code isn't valid. Copy it again from the setup output." : "Enter the pairing code, or the address and token.");
+      e.target.disabled = true; e.target.textContent = "Testing…";
+      try { await linkOpenClaw(link); location.reload(); }
+      catch (err) { alert(`Couldn't reach OpenClaw at ${link.url}: ${err.message}\nIs the computer on, and is Tailscale connected on this phone?`); e.target.disabled = false; e.target.textContent = "Test and link"; }
+    }
+  });
+  document.body.append(sheet);
+}
+
+// Scanning the setup's QR code opens com.myops.app://openclaw?code=… and links straight away.
+App.addListener("appUrlOpen", async ({ url }) => {
+  const m = String(url).match(/^com\.myops\.app:\/\/openclaw\?code=([A-Za-z0-9_-]+)/);
+  if (!m) return;
+  const link = decodePairing(m[1]);
+  if (!link) return alert("That OpenClaw link isn't valid. Run the setup again.");
+  try { await linkOpenClaw(link); alert(`OpenClaw linked: ${link.url}`); location.reload(); }
+  catch (err) { alert(`Couldn't reach OpenClaw at ${link.url}: ${err.message}`); }
+}).catch(() => {});
+
 function accountPanel({ user, ai }) {
   const p = provider(ai.provider);
   const btn = Object.assign(document.createElement("button"), { textContent: "Account", className: "myops-account-btn" });
   const panel = document.createElement("div");
   panel.className = "myops-account-panel"; panel.hidden = true;
   panel.innerHTML = `<strong>Signed in</strong><div class="row"></div><strong>AI</strong><div class="row ai"></div>
-    <strong>OpenClaw browsing</strong><div class="row oc"></div>
-    <div class="ocform" hidden><input class="ocurl" placeholder="http://192.168.1.10:18789/v1" spellcheck="false"><input class="octoken" type="password" placeholder="Gateway token"><button data-a="ocsave">Test and link</button></div>
-    <button data-a="oc">Link OpenClaw</button>
+    <strong>OpenClaw</strong><div class="row oc"></div>
+    <button data-a="oc">Connect OpenClaw</button>
     <button data-a="ai">Change AI</button><button data-a="out">Sign out</button><button data-a="close">Close</button>`;
   panel.querySelector(".row").textContent = user.email || user.user_metadata?.full_name || user.id;
   panel.querySelector(".ai").textContent = `${p?.name || ai.provider} · ${ai.model}`;
-  const ocShow = () => {
-    const link = loadOpenClaw();
-    panel.querySelector(".oc").textContent = link ? `Linked: ${link.url}` : "Not linked. The Manager can send web research to your OpenClaw agent.";
-    panel.querySelector('[data-a="oc"]').textContent = link && localStorage.getItem(OC_KEY) ? "Unlink OpenClaw" : "Link OpenClaw";
-  };
-  ocShow();
+  const link = loadOpenClaw();
+  panel.querySelector(".oc").textContent = link ? `Linked: ${link.url}` : "Not linked. Connect it and the Manager can browse the web through your OpenClaw.";
   panel.addEventListener("click", async (e) => {
     const a = e.target.dataset?.a;
     if (a === "close") panel.hidden = true;
-    if (a === "oc") {
-      if (localStorage.getItem(OC_KEY)) { localStorage.removeItem(OC_KEY); ocShow(); return alert("OpenClaw unlinked. Reopen the app to apply."); }
-      panel.querySelector(".ocform").hidden = false;
-    }
-    if (a === "ocsave") {
-      const link = { url: panel.querySelector(".ocurl").value.trim(), token: panel.querySelector(".octoken").value.trim(), agent: "main" };
-      e.target.disabled = true; e.target.textContent = "Testing…";
-      try {
-        await complete({ provider: "openclaw", base: link.url, key: link.token, model: "openclaw:main" }, "Reply with OK.", { maxTokens: 5 });
-        localStorage.setItem(OC_KEY, JSON.stringify(link));
-        location.reload(); // the page picks the helper up at start
-      } catch (err) {
-        alert(`Couldn't reach OpenClaw: ${err.message}`);
-        e.target.disabled = false; e.target.textContent = "Test and link";
-      }
-    }
+    if (a === "oc") { panel.hidden = true; openClawSheet(); }
     if (a === "ai") { clearAI(); location.replace("index.html#ai"); }
     if (a === "out") { await dbInstance?.flush().catch(() => {}); await supabase.auth.signOut(); clearAI(); location.replace("index.html"); }
   });
@@ -236,7 +278,15 @@ function accountPanel({ user, ai }) {
   const style = document.createElement("style");
   style.textContent = `.myops-account-btn{position:fixed;right:10px;top:calc(10px + env(safe-area-inset-top));z-index:50;font:600 12px system-ui;padding:6px 10px;border-radius:999px;border:1px solid #c9c2b4;background:#fff;color:#18212b}
   .myops-account-btn.inline{position:static;margin-left:6px;flex:0 0 auto}.myops-account-panel[hidden]{display:none}.myops-account-panel{position:fixed;right:10px;top:calc(46px + env(safe-area-inset-top));z-index:50;width:260px;background:#fff;color:#18212b;border:1px solid #c9c2b4;border-radius:12px;padding:12px;font:13px system-ui;box-shadow:0 8px 30px #0003;display:flex;flex-direction:column;gap:6px}
-  .myops-account-panel .row{color:#5b6470;overflow-wrap:anywhere}.myops-account-panel input{font:13px system-ui;padding:8px;border-radius:8px;border:1px solid #c9c2b4;width:100%;margin-bottom:4px}.ocform{display:flex;flex-direction:column}.ocform[hidden]{display:none}.myops-account-panel button{font:600 13px system-ui;padding:8px;border-radius:8px;border:1px solid #c9c2b4;background:#f4f1ea;color:#18212b}`;
+  .myops-account-panel .row{color:#5b6470;overflow-wrap:anywhere}.myops-account-panel button,.myops-sheet button{font:600 13px system-ui;padding:9px;border-radius:9px;border:1px solid #c9c2b4;background:#f4f1ea;color:#18212b}
+  .myops-sheet{position:fixed;inset:0;z-index:60;background:#0006;overflow:auto;padding:calc(16px + env(safe-area-inset-top)) 12px calc(16px + env(safe-area-inset-bottom))}
+  .myops-sheet .card{max-width:480px;margin:0 auto;background:#fbf9f4;color:#18212b;border-radius:16px;padding:16px;font:14px/1.45 system-ui;display:flex;flex-direction:column;gap:10px}
+  .myops-sheet .hero{background:#f1ece2;border-radius:12px;padding:22px 14px;text-align:center;display:flex;flex-direction:column;gap:2px}.myops-sheet .hero b{font-size:22px}.myops-sheet .hero span{font-size:12px;color:#5b6470}
+  .myops-sheet .lead,.myops-sheet .opt p{color:#5b6470;margin:0}.myops-sheet h3{margin:6px 0 0;font-size:15px}.myops-sheet .state{font-size:13px;color:#15803d;overflow-wrap:anywhere}
+  .myops-sheet .opt{border:1px solid #d9d3c7;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;background:#fff}.myops-sheet .opt b{font-size:15px}
+  .myops-sheet .step{font-size:13px}.myops-sheet code{font:12px ui-monospace,monospace;background:#f1ece2;padding:8px;border-radius:8px;overflow-wrap:anywhere;display:block;color:#18212b}
+  .myops-sheet input{font:13px system-ui;padding:10px;border-radius:9px;border:1px solid #c9c2b4;width:100%;box-sizing:border-box;margin-top:6px}
+  .myops-sheet .primary{background:#18212b;color:#fff;border-color:#18212b}.myops-sheet .row-btns{display:flex;gap:8px;justify-content:flex-end}.myops-sheet details summary{font-size:13px;color:#5b6470;cursor:pointer}`;
   document.head.append(style);
   // In the page header next to the profile picker when there is one, else floating.
   const sel = document.getElementById("spaceSel");

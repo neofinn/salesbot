@@ -18,17 +18,20 @@ The **Account** button in the app shows who is signed in and which AI is in use,
 or sign out.
 
 ## OpenClaw (formerly Clawdbot)
-OpenClaw runs on your own computer with a real browser. Turn on its Gateway's HTTP endpoint
-(`gateway.http.endpoints.chatCompletions.enabled: true` in the OpenClaw config) and note the Gateway token.
-Kimi Claw (OpenClaw hosted by Moonshot) works the same way if it gives you a Gateway address and token
-with the HTTP endpoint on. Then link it either way:
-- **As the team's AI:** at sign-in step 2 pick **OpenClaw (Clawdbot)**, enter the Gateway address and token.
-- **As a browsing helper:** keep any AI for the team, then **Account > Link OpenClaw**. The Manager gets a
-  `browse` action that sends web research to OpenClaw (read-only: no logins, purchases, posts or messages).
+OpenClaw is your own agent with a real browser. In the app, **Account > Connect OpenClaw** offers:
+- **On my computer** (Mac, Linux, Windows with WSL2) or **on a cloud server** (any Ubuntu VPS, 24/7):
+  install [Tailscale](https://tailscale.com/download) there and on the phone, then run
+  `curl -fsSL https://bsvahyfzpfnhkyzgmoow.supabase.co/functions/v1/openclaw-setup | bash`
+  ([source](../integrations/openclaw/myops-link.sh)). It installs OpenClaw with the official installer if
+  needed, turns on the Gateway's OpenAI-compatible endpoint with a strong token, serves it privately over
+  Tailscale (never the open internet), tests it, and prints a QR code and a pairing code. Scan the QR code
+  with the phone's camera, or paste the pairing code.
+- **Link existing OpenClaw** (yours, or a hosted one such as Kimi Claw if it gives you a Gateway address
+  and token): paste a pairing code, or the address and token.
 
-Address: on the same Wi-Fi, `http://<computer-ip>:18789/v1` (the app allows plain http to your local
-network). Away from home, put the Gateway behind Tailscale (`tailscale serve`) and use its https address;
-never expose the Gateway to the open internet.
+Linked OpenClaw gives the Manager a `browse` action for web research (read-only: no logins, purchases,
+posts or messages). To run the whole team on OpenClaw instead, pick **OpenClaw (Clawdbot)** at sign-in
+step 2 and paste the same pairing code.
 
 ## Not on the phone (yet)
 Clay and Airtable connectors and the stock screener's market data come from claude.ai and the research

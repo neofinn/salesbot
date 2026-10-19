@@ -3,7 +3,7 @@
 import { App } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
 import { AUTH_REDIRECT, OPENROUTER_REDIRECT } from "./config.js";
-import { listModels, openRouterFinish, openRouterStart, PROVIDERS, provider } from "./providers.js";
+import { decodePairing, listModels, openRouterFinish, openRouterStart, PROVIDERS, provider } from "./providers.js";
 import { currentUser, isNative, loadAI, saveAI, supabase } from "./session.js";
 
 const $ = (id) => document.getElementById(id);
@@ -80,13 +80,15 @@ function pick(p, key = "") {
   $("key").value = key; $("key").hidden = $("keyLabel").hidden = !!p.noKey;
   $("keyLabel").textContent = p.tokenLabel ? `${p.name} ${p.tokenLabel}` : `${p.name} API key`;
   $("keyHelp").innerHTML = p.noKey ? "Run Ollama on a computer on the same Wi-Fi and enter its address."
-    : p.id === "openclaw" ? "Turn on the Gateway's HTTP endpoint (gateway.http.endpoints.chatCompletions.enabled: true), then enter its address and token. Same Wi-Fi: http://your-computer-ip:18789/v1. Away from home: a Tailscale https address."
+    : p.id === "openclaw" ? "Paste the pairing code from the MyOps OpenClaw setup (run <code>curl -fsSL https://bsvahyfzpfnhkyzgmoow.supabase.co/functions/v1/openclaw-setup | bash</code> on your computer or server), or enter its Gateway address and token."
     : `Get one at <a href="${p.keyUrl}" target="_blank" rel="noopener">${new URL(p.keyUrl).host}</a>, then paste it here.`;
   $("baseWrap").hidden = !p.customBase; $("base").value = p.base;
   if (key) connect();
 }
 async function connect() {
   const cfg = { provider: picked.id, key: $("key").value.trim(), base: picked.customBase ? $("base").value.trim() : undefined };
+  const paired = picked.id === "openclaw" && cfg.key.startsWith("myops-oc:") ? decodePairing(cfg.key) : null;
+  if (paired) { cfg.key = paired.token; cfg.base = paired.url; $("base").value = paired.url; }
   if (!picked.noKey && !cfg.key) return say("aiMsg", "Paste your API key first.", "bad");
   $("connectBtn").disabled = true; say("aiMsg", "Checking the key…");
   try {
