@@ -9,7 +9,7 @@ phone. There is no MyOps server to run. AI calls go straight from the phone to t
    their own rows), so a second phone picks up where you left off.
 2. **Your AI:** **Sign in with OpenRouter** (a real login: one account for Claude, GPT, Gemini, Grok,
    Llama, Qwen and more), or an API key for Anthropic Claude, OpenAI, Google Gemini, xAI Grok, DeepSeek,
-   Mistral, Groq, Alibaba Qwen, Perplexity, Together AI or Cohere, or your own Ollama server. The key is
+   Mistral, Groq, Kimi (Moonshot), Alibaba Qwen, Perplexity, Together AI or Cohere, or your own Ollama server. The key is
    checked, you pick a model, and it stays on the phone; it is never uploaded. OpenAI, Anthropic and
    Google don't let other apps sign in with a ChatGPT, Claude or Gemini subscription, which is why those
    take an API key.
@@ -20,7 +20,8 @@ or sign out.
 ## OpenClaw (formerly Clawdbot)
 OpenClaw runs on your own computer with a real browser. Turn on its Gateway's HTTP endpoint
 (`gateway.http.endpoints.chatCompletions.enabled: true` in the OpenClaw config) and note the Gateway token.
-Then link it either way:
+Kimi Claw (OpenClaw hosted by Moonshot) works the same way if it gives you a Gateway address and token
+with the HTTP endpoint on. Then link it either way:
 - **As the team's AI:** at sign-in step 2 pick **OpenClaw (Clawdbot)**, enter the Gateway address and token.
 - **As a browsing helper:** keep any AI for the team, then **Account > Link OpenClaw**. The Manager gets a
   `browse` action that sends web research to OpenClaw (read-only: no logins, purchases, posts or messages).

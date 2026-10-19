@@ -14,6 +14,7 @@ export const PROVIDERS = [
   { id: "deepseek", name: "DeepSeek", kind: "openai", base: "https://api.deepseek.com/v1", keyUrl: "https://platform.deepseek.com/api_keys", prefer: ["chat", "reasoner"] },
   { id: "mistral", name: "Mistral", kind: "openai", base: "https://api.mistral.ai/v1", keyUrl: "https://console.mistral.ai/api-keys", prefer: ["large", "medium"], skip: /embed|moderation|ocr/ },
   { id: "groq", name: "Groq", kind: "openai", base: "https://api.groq.com/openai/v1", keyUrl: "https://console.groq.com/keys", prefer: ["llama-3.3-70b", "70b"], skip: /whisper|guard|tts/ },
+  { id: "moonshot", name: "Kimi (Moonshot)", kind: "openai", base: "https://api.moonshot.ai/v1", keyUrl: "https://platform.moonshot.ai/console/api-keys", prefer: ["kimi-k2", "kimi-latest", "moonshot-v1-128k"] },
   { id: "qwen", name: "Alibaba Qwen", kind: "openai", base: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
     keyUrl: "https://bailian.console.alibabacloud.com/?apiKey=1", models: ["qwen-max", "qwen-plus", "qwen-turbo"] },
   { id: "perplexity", name: "Perplexity", kind: "openai", base: "https://api.perplexity.ai", keyUrl: "https://www.perplexity.ai/settings/api", models: ["sonar-pro", "sonar"] },
