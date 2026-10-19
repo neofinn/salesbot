@@ -255,6 +255,13 @@ position and golden cross.
   file.json` writes the snapshot as documents for the page's `screener` collection (`<market>_meta`,
   `<market>_c0`, ...); weekday routines refresh India after the NSE close and US penny stocks after the US close.
 
+## Phone app
+
+`mobile/` is MyOps as a self-contained Android and iOS app: the team runs on the phone with two sign-ins,
+a MyOps account (email and password or Google, synced across phones) and your AI (OpenRouter sign-in or an
+API key for Claude, GPT, Gemini, Grok, DeepSeek, Mistral, Groq, Qwen, Perplexity, Together, Cohere or
+Ollama). See [mobile/README.md](mobile/README.md).
+
 ## Prompt converter
 
 Rough messages become precise instructions: **Make precise** (web app and artifact) rewrites what you typed,

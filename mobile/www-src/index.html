@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#18212b">
+<title>MyOps · Sign in</title>
+<style>
+  :root { --ink: #18212b; --muted: #5b6470; --line: #d9d3c7; --paper: #f4f1ea; --card: #fffdf8; --accent: #d2551f; --good: #15803d; --bad: #b91c1c; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+         padding: calc(20px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom)); }
+  main { max-width: 440px; margin: 0 auto; }
+  h1 { font-size: 30px; margin: 4px 0 2px; letter-spacing: -0.02em; } h1 span { color: var(--accent); }
+  .lead { color: var(--muted); margin: 0 0 18px; }
+  .steps { display: flex; gap: 8px; margin-bottom: 14px; }
+  .steps div { flex: 1; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); font-size: 13px; color: var(--muted); background: var(--card); }
+  .steps div.on { border-color: var(--ink); color: var(--ink); font-weight: 600; }
+  .steps div.done { border-color: var(--good); color: var(--good); }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+  h2 { font-size: 17px; margin: 0 0 4px; } .muted { color: var(--muted); font-size: 13px; }
+  label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
+  input, select { width: 100%; font: inherit; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: #fff; color: var(--ink); }
+  button { font: 600 15px system-ui, sans-serif; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--ink); background: var(--ink); color: #fff; width: 100%; margin-top: 12px; }
+  button.ghost { background: #fff; color: var(--ink); border-color: var(--line); }
+  button:disabled { opacity: 0.6; }
+  .or { text-align: center; color: var(--muted); font-size: 12px; margin: 14px 0 0; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 4px; } .tabs button { margin: 0; padding: 8px; font-size: 13px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+  .grid button { margin: 0; padding: 10px 8px; font-size: 13px; background: #fff; color: var(--ink); border-color: var(--line); text-align: left; }
+  .grid button.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .grid button.wide { grid-column: 1 / -1; background: var(--accent); border-color: var(--accent); color: #fff; }
+  .msg { margin-top: 10px; font-size: 13px; } .msg.bad { color: var(--bad); } .msg.good { color: var(--good); }
+  a { color: var(--accent); }
+  .who { display: flex; justify-content: space-between; gap: 8px; align-items: center; font-size: 13px; margin-bottom: 10px; color: var(--muted); }
+  .who button { width: auto; margin: 0; padding: 6px 10px; font-size: 12px; }
+  .fine { color: var(--muted); font-size: 12px; margin-top: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>My<span>Ops</span></h1>
+  <p class="lead">Your personal AI team. Two sign-ins: your MyOps account, then the AI your team runs on.</p>
+  <div class="steps"><div id="s1">1 · Account</div><div id="s2">2 · AI</div></div>
+
+  <section id="account" hidden>
+    <h2>Your MyOps account</h2>
+    <p class="muted">Keeps your team, chats and notes safe and synced across your phones.</p>
+    <div class="tabs"><button type="button" id="tabIn">Sign in</button><button type="button" class="ghost" id="tabUp">Create account</button></div>
+    <form id="emailForm">
+      <label for="email">Email</label><input id="email" type="email" autocomplete="email" required>
+      <label for="password">Password</label><input id="password" type="password" autocomplete="current-password" minlength="8" required>
+      <button id="emailBtn" type="submit">Sign in</button>
+      <button id="forgotBtn" type="button" class="ghost">Forgot password</button>
+    </form>
+    <p class="or">or</p>
+    <button id="googleBtn" type="button" class="ghost">Continue with Google</button>
+    <div class="msg" id="accountMsg"></div>
+  </section>
+
+  <section id="ai" hidden>
+    <div class="who"><span id="whoText"></span><button type="button" class="ghost" id="signOutBtn">Sign out</button></div>
+    <h2>Connect your AI</h2>
+    <p class="muted">Pick the platform your team runs on. OpenRouter has a real sign-in; the others use an API key from their console. Your key stays on this phone.</p>
+    <div class="grid" id="providers"></div>
+    <form id="keyForm" hidden>
+      <label for="key" id="keyLabel">API key</label><input id="key" type="password" autocomplete="off" spellcheck="false">
+      <p class="muted" id="keyHelp"></p>
+      <div id="baseWrap" hidden><label for="base">Server address</label><input id="base" type="url" spellcheck="false"></div>
+      <button id="connectBtn" type="submit">Connect</button>
+      <div id="modelWrap" hidden>
+        <label for="model">Model</label><select id="model"></select>
+        <button id="startBtn" type="button">Open MyOps</button>
+      </div>
+    </form>
+    <div class="msg" id="aiMsg"></div>
+  </section>
+  <p class="fine">AI usage is billed by the platform you connect, under your own account. Research only, not financial advice.</p>
+</main>
+<script src="login.js"></script>
+</body>
+</html>
