@@ -113,6 +113,13 @@ main {
 .screen-table th { text-align: left; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); padding: 4px 2px; }
 .screen-table td { border-bottom: 1px solid var(--line); padding: 4px 2px; }
 .screen-table .up { color: #15803d; } .screen-table .down { color: #b91c1c; }
+.mode-switch { display: flex; gap: 2px; background: var(--line); border-radius: 999px; padding: 2px; }
+.mode-switch button { border: 0; background: transparent; font: 600 13px var(--sans, system-ui); padding: 5px 12px; border-radius: 999px; color: var(--muted); cursor: pointer; }
+.mode-switch button[aria-selected="true"] { background: var(--card, #fff); color: var(--ink, #18212b); }
+.quick { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 12px 0; }
+.quick button { font-size: 12px; }
+.dev-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.dev-preview { border: 1px dashed var(--accent, #d2551f); border-radius: 10px; padding: 8px; margin-top: 8px; font-size: 13px; }
 .team-group { display: flex; flex-direction: column; gap: 8px; }
 .team-name { font-size: 12px; font-weight: 600; color: var(--muted); margin-top: 4px; }
 .badge.staff .mark { background: var(--staff-soft); color: var(--staff); }
@@ -259,6 +266,8 @@ textarea, input, select {
       <div id="connections"></div>
       <div class="eyebrow section-label">Profile</div>
       <div id="operation"></div>
+      <div class="eyebrow section-label">Developer</div>
+      <div id="devbox"></div>
       <form class="hire-form" id="hireForm">
         <label class="eyebrow" for="hireInput">Hire directly</label>
         <textarea id="hireInput" placeholder="Job description, e.g. Plans my week from my goals and drafts the emails it needs"></textarea>
@@ -268,7 +277,8 @@ textarea, input, select {
   </section>
 
   <section class="pane show" id="pane-chat" aria-label="Manager">
-    <div class="head"><h2>Manager</h2><button class="btn ghost small" id="checkBtn" type="button">Check Claude</button></div>
+    <div class="head"><div class="mode-switch" role="tablist" aria-label="Chat with"><button type="button" role="tab" id="modeMgr" aria-selected="true">Manager</button><button type="button" role="tab" id="modeAI" aria-selected="false">Direct AI</button></div><button class="btn ghost small" id="checkBtn" type="button">Check Claude</button></div>
+    <div class="quick" id="quick" hidden></div>
     <div class="scroll" id="chatScroll"><div class="log" id="log"></div></div>
     <div class="notice" id="chatNotice" hidden></div>
     <form class="compose" id="compose">
@@ -292,6 +302,7 @@ textarea, input, select {
         <button role="tab" data-sub="notes" aria-selected="false">Notes</button>
         <button role="tab" data-sub="videos" aria-selected="false">Videos</button>
         <button role="tab" data-sub="apps" aria-selected="false">Apps</button>
+        <button role="tab" data-sub="custom" aria-selected="false" id="customTab" hidden>Custom</button>
         <button role="tab" data-sub="leads" aria-selected="false">Contacts</button>
       </div>
       <span class="eyebrow" id="rightMeta" hidden></span>
@@ -303,6 +314,7 @@ textarea, input, select {
     <div class="scroll" id="sub-notes" hidden></div>
     <div class="scroll" id="sub-videos" hidden></div>
     <div class="scroll" id="sub-apps" hidden></div>
+    <div class="scroll" id="sub-custom" hidden></div>
     <div class="scroll" id="sub-leads" hidden>
       <div class="filter"><input id="leadSearch" placeholder="Search contacts" aria-label="Search contacts"></div>
       <div class="filter" id="atButtons" hidden>
@@ -363,7 +375,8 @@ const NAME_RE = /^[a-z][a-z0-9_]{1,31}$/;
 const MAX_ROUNDS = 4;
 
 const S = {
-  bots: [], leads: [], outbox: [], chat: [], tasks: [], reports: [], notes: [], videos: [], apps: [], screeners: {}, screen: null,
+  bots: [], leads: [], outbox: [], chat: [], tasks: [], reports: [], notes: [], videos: [], apps: [], screeners: {}, screen: null, aichat: [], devreqs: [],
+  custom: null, chatMode: "manager", // Developer mode customizations (root settings/custom) and the chat pane mode
   profile: null, loaded: false, editingProfile: false, // who the open profile works for
   root: null, space: "main", spaces: [], unsubs: [], // all profiles, and the one open now
   memory: null, // the open profile's long-term chat memory (config/memory)
@@ -455,7 +468,7 @@ function openSpace(id) {
   S.unsubs = [];
   S.space = id;
   try { localStorage.setItem("myops.space", id); } catch { /* per-viewer convenience only */ }
-  Object.assign(S, { bots: [], tasks: [], leads: [], outbox: [], chat: [], reports: [], notes: [], videos: [], apps: [], screen: null, profile: null, memory: null, at: null, atNote: "", loaded: false, editingProfile: false });
+  Object.assign(S, { bots: [], tasks: [], leads: [], outbox: [], chat: [], reports: [], notes: [], videos: [], apps: [], aichat: [], screen: null, profile: null, memory: null, at: null, atNote: "", loaded: false, editingProfile: false });
   S.store = scoped(S.root, id);
   const onErr = (e) => { if (e?.code !== "unavailable") setStatus("Live updates stopped. Reload the page.", true); };
   const sub = (c, fn) => S.unsubs.push(S.store.sub(c, fn, onErr));
@@ -463,6 +476,7 @@ function openSpace(id) {
   sub("tasks", (rows) => { S.tasks = rows; renderTasks(); });
   sub("reports", (rows) => { S.reports = rows; renderReports(); });
   sub("notes", (rows) => { S.notes = rows; renderNotes(); });
+  sub("aichat", (rows) => { S.aichat = rows; if (S.chatMode === "ai") renderChat(); });
   sub("videos", (rows) => { S.videos = rows; renderVideos(); });
   sub("apps", (rows) => { S.apps = rows; renderApps(); });
   sub("leads", (rows) => { S.leads = rows; renderLeads(); });
@@ -542,9 +556,18 @@ function botBadge(b) {
 
 function renderChat() {
   const log = $("log");
-  const msgs = [...S.chat].sort((a, b) => (a.at || 0) - (b.at || 0));
+  const direct = S.chatMode === "ai";
+  const msgs = [...(direct ? S.aichat : S.chat)].sort((a, b) => (a.at || 0) - (b.at || 0));
   const nodes = msgs.map((m) => message(m.role, m.text, m.steps, false, m.refined));
-  if (S.live) nodes.push(message("manager", S.live.text || "Working on it…", S.live.steps, true));
+  if (S.live && !!S.live.direct === direct) nodes.push(message(direct ? "ai" : "manager", S.live.text || (direct ? "Thinking…" : "Working on it…"), S.live.steps, true));
+  if (direct) {
+    if (!nodes.length) nodes.push(el("div", { className: "empty" },
+      el("h3", { textContent: "Chat directly with the AI" }),
+      el("p", { textContent: "A plain conversation with the AI your team runs on: no Manager, no bots, no tools. Ask anything, brainstorm, draft or translate. Switch back to Manager to put the team to work." })));
+    log.replaceChildren(...nodes);
+    const sc = $("chatScroll"); sc.scrollTop = sc.scrollHeight;
+    return;
+  }
   if (S.loaded && !S.readOnly && !S.live && (!S.profile || S.editingProfile)) {
     log.replaceChildren(setupForm());
     return;
@@ -566,7 +589,7 @@ function renderChat() {
   const sc = $("chatScroll"); sc.scrollTop = sc.scrollHeight;
 }
 function message(role, text, steps, live, refined) {
-  const who = role === "user" ? "You" : "Manager";
+  const who = role === "user" ? "You" : role === "ai" ? "AI" : "Manager";
   const stepList = (steps || []).length ? el("ul", { className: "steps" },
     steps.map((s) => el("li", { className: s.state || "done", textContent: s.text }))) : null;
   const wrapSteps = stepList && !live
@@ -655,7 +678,7 @@ function renderOperation() {
 // The main profile stays in the list (empty); any other profile is removed from it.
 async function resetOperation() {
   const id = S.space;
-  for (const c of ["bots", "tasks", "leads", "outbox", "chat", "reports", "notes", "videos", "apps", "diagnostics"]) await S.store.clear(c);
+  for (const c of ["bots", "tasks", "leads", "outbox", "chat", "reports", "notes", "videos", "apps", "aichat", "diagnostics"]) await S.store.clear(c);
   for (const doc of ["profile", "airtable", "memory"]) await S.store.del("config", doc).catch(() => {});
   await S.root.del("spaces", id).catch(() => {});
   showPane("pane-chat");
@@ -778,7 +801,7 @@ function fetchEmailButton(l) {
   return b;
 }
 
-function renderAll() { renderTeam(); renderConnections(); renderOperation(); renderChat(); renderOutbox(); renderTasks(); renderReports(); renderScreener(); renderNotes(); renderVideos(); renderApps(); renderLeads(); syncCompose(); }
+function renderAll() { renderTeam(); renderConnections(); renderOperation(); renderChat(); renderOutbox(); renderTasks(); renderReports(); renderScreener(); renderNotes(); renderVideos(); renderApps(); renderLeads(); renderDev(); renderCustom(); syncCompose(); }
 
 function syncCompose() {
   $("sendBtn").hidden = S.busy; $("stopBtn").hidden = !S.busy;
@@ -2111,6 +2134,7 @@ async function delegateWork(bot, task, signal) {
 async function send(text) {
   text = String(text || "").trim();
   if (!text || S.busy || !S.sample || S.readOnly) return;
+  if (S.chatMode === "ai") return sendDirect(text);
   $("input").value = "";
   notice("");
   S.busy = true; S.ctl = new AbortController();
@@ -2144,6 +2168,155 @@ async function send(text) {
   updateMemory().catch(() => {});
 }
 
+// Direct AI chat: a plain multi-turn conversation with the model, outside the team.
+async function sendDirect(text) {
+  $("input").value = ""; notice("");
+  S.busy = true; S.ctl = new AbortController();
+  S.live = { text: "", steps: [], direct: true };
+  const at = Date.now();
+  const history = [...S.aichat].sort((a, b) => (a.at || 0) - (b.at || 0)).slice(-30);
+  S.aichat.push({ id: "pending-ai-user", role: "user", text, at });
+  syncCompose(); renderChat();
+  S.store.set("aichat", `d${at}u`, { role: "user", text, at }).catch(showStoreError);
+  const intro = `You are a helpful, direct assistant inside MyOps, ${orgName()}'s personal AI team app. Answer the owner's messages clearly. Today is ${new Date().toDateString()}.`;
+  const turns = [...history, { role: "user", text }].map((m, i) => ({ role: m.role === "user" ? "user" : "assistant", content: (i === 0 ? intro + "\n\n" : "") + String(m.text) }));
+  if (turns[0].role !== "user") turns.unshift({ role: "user", content: intro });
+  let reply;
+  try {
+    const out = await S.sample(turns, { signal: S.ctl.signal, cache: false, modelTier: S.tier, onText: ({ text: t }) => { if (S.live) { S.live.text = t; renderChat(); } } });
+    reply = String(out?.text || "").trim() || "(no answer)";
+  } catch (e) { reply = errText(e); if (e?.code && e.code !== "cancelled") notice(reply, true); }
+  finally { S.live = null; S.busy = false; S.ctl = null; S.aichat = S.aichat.filter((m) => m.id !== "pending-ai-user"); }
+  const doc = { role: "ai", text: reply, at: Date.now() };
+  S.aichat.push({ id: `d${doc.at}a`, ...doc });
+  await S.store.set("aichat", `d${doc.at}a`, doc).catch(showStoreError);
+  renderAll();
+}
+function setChatMode(mode) {
+  S.chatMode = mode;
+  try { localStorage.setItem("myops.chatMode", mode); } catch { /* storage unavailable */ }
+  $("modeMgr").setAttribute("aria-selected", String(mode === "manager"));
+  $("modeAI").setAttribute("aria-selected", String(mode === "ai"));
+  $("input").placeholder = mode === "ai" ? "Message the AI directly…" : "Tell the Manager what you need…";
+  $("refineBtn").parentElement.style.display = mode === "ai" ? "none" : "";
+  renderChat(); renderQuick();
+}
+
+// ---------- Developer mode: change MyOps with AI ----------
+// Customizations are data, not code that runs inside the app: CSS for the look, quick-action buttons, and
+// custom panels (HTML that runs only in a sandboxed frame with no access to the app, its data or keys).
+const CUSTOM_MAX_VERSIONS = 10;
+const activeCustom = () => (S.safeMode ? null : S.custom?.versions?.[S.custom.active ?? -1] || null);
+function applyCustom(preview) {
+  const c = preview || activeCustom();
+  let st = document.getElementById("myops-custom-css");
+  if (!st) { st = document.createElement("style"); st.id = "myops-custom-css"; document.head.append(st); }
+  // The Developer section and its safe-mode button always stay visible, whatever the custom CSS says.
+  st.textContent = (c?.css || "") + "\n#devbox, #devbox * { visibility: visible !important; } #devbox { display: block !important; }";
+  renderQuick(c);
+  const tab = $("customTab"); if (tab) tab.hidden = !(c?.panels?.length);
+}
+function renderQuick(c = activeCustom()) {
+  const box = $("quick"); if (!box) return;
+  const items = S.chatMode === "manager" ? c?.quick || [] : [];
+  box.hidden = !items.length;
+  box.replaceChildren(...items.map((q) => el("button", { className: "btn ghost small", type: "button", textContent: q.label, disabled: S.readOnly, onclick: () => send(q.prompt) })));
+}
+function renderCustom() {
+  const box = $("sub-custom"); if (!box) return;
+  const c = activeCustom();
+  box.replaceChildren(...(c?.panels?.length ? c.panels.map((pn) => el("div", { style: "margin-bottom:12px" },
+    el("div", { style: "font-weight:600;margin-bottom:6px", textContent: pn.title }),
+    el("iframe", { title: pn.title, sandbox: "allow-scripts allow-forms", srcdoc: pn.html, style: "width:100%;height:" + Math.min(900, Math.max(200, Number(pn.height) || 420)) + "px;border:1px solid var(--line);border-radius:10px;background:#fff" })))
+    : [el("p", { className: "muted", style: "font-size:13px", textContent: "Custom panels made in Developer mode appear here." })]));
+}
+const validCss = (css) => String(css || "").replace(/@import[^;]*;?/gi, "").replace(/url\(\s*['"]?(?!data:)[^)]*\)/gi, "none").slice(0, 20000);
+async function makeCustomization(request) {
+  const cur = activeCustom();
+  const out = await askJson([
+    `You are the Web Developer on the MyOps Development team. The owner wants to change how their MyOps app looks or works. You can change three things only:`,
+    "1. css: CSS added on top of the app's styles. Useful selectors: :root (variables --ink, --muted, --line, --paper, --card, --accent), body, header.top, .pane, .pane > .head, .msg.user, .msg.manager, .badge, .btn, .compose, textarea, #pane-team, #pane-chat, #pane-right. Never hide or break #devbox. No @import, no external URLs.",
+    "2. quick: up to 8 quick-action buttons above the chat, each {label (2-4 words), prompt (the full instruction sent to the Manager)}.",
+    "3. panels: up to 4 custom panels in a Custom tab, each {title, html, height}: a complete self-contained HTML document (inline CSS and JS, no external resources) for calculators, checklists, dashboards, timers or notes. Panels run in a sandbox: they cannot read the app's data or the internet, so they keep their own data in memory.",
+    "Changes to the team's logic, AI connections, data or anything else need the app itself to change: put those in needs_code (a precise description for the MyOps dev bots), and do what you can with the three options.",
+    `Current customization (JSON, edit it rather than starting over): ${JSON.stringify(cur ? { css: cur.css, quick: cur.quick, panels: (cur.panels || []).map((x) => ({ title: x.title, height: x.height, html: x.html.slice(0, 4000) })) } : null)}`,
+    `The owner's request: ${request}`,
+    'Reply with ONLY a JSON object: {"summary": "one or two sentences on what changes", "css": "", "quick": [{"label": "", "prompt": ""}], "panels": [{"title": "", "html": "", "height": 420}], "needs_code": ""}',
+  ].join("\n\n"));
+  return {
+    request: request.slice(0, 600), summary: String(out?.summary || "").slice(0, 400), css: validCss(out?.css),
+    quick: (Array.isArray(out?.quick) ? out.quick : []).filter((q) => q?.label && q?.prompt).slice(0, 8).map((q) => ({ label: String(q.label).slice(0, 40), prompt: String(q.prompt).slice(0, 1500) })),
+    panels: (Array.isArray(out?.panels) ? out.panels : []).filter((x) => x?.title && /<html|<body|<div|<script/i.test(String(x.html || ""))).slice(0, 4)
+      .map((x) => ({ title: String(x.title).slice(0, 60), html: String(x.html).slice(0, 60000), height: Number(x.height) || 420 })),
+    needs_code: String(out?.needs_code || "").slice(0, 2000), at: Date.now(),
+  };
+}
+async function saveCustom(versions, active) {
+  await S.root.set("settings", "custom", { versions: versions.slice(-CUSTOM_MAX_VERSIONS), active, updatedAt: Date.now() }).catch(showStoreError);
+}
+async function requestDevChange(request, signal) {
+  let spec = { title: request.slice(0, 80), spec: request };
+  try {
+    const out = await askJson([
+      "You are the CTO of the MyOps Development team. The owner asked for a change to the MyOps app itself. Turn it into a precise change request for the dev bots who build MyOps: what to change, where it shows up, how it should behave, and how to check it works. Keep the owner's intent exactly; do not add features.",
+      `Request: ${request}`,
+      'Reply with ONLY a JSON object: {"title": "short title", "spec": "the precise change request"}',
+    ].join("\n\n"), signal);
+    if (out?.title && out?.spec) spec = { title: String(out.title).slice(0, 120), spec: String(out.spec).slice(0, 4000) };
+  } catch { /* keep the owner's words */ }
+  const id = shortId("r", new Set(S.devreqs.map((r) => r.id)));
+  await S.root.set("dev_requests", id, { ...spec, request: request.slice(0, 2000), status: "new", createdAt: Date.now() }).catch(showStoreError);
+  return spec;
+}
+function renderDev() {
+  const box = $("devbox"); if (!box) return;
+  let on = false; try { on = localStorage.getItem("myops.dev") === "1"; } catch { /* storage unavailable */ }
+  const toggle = el("label", { style: "display:flex;gap:8px;align-items:center;font-size:13px" },
+    el("input", { type: "checkbox", checked: on, style: "width:auto;flex:0 0 auto;margin:0", onchange: (e) => { try { localStorage.setItem("myops.dev", e.target.checked ? "1" : "0"); } catch { /* ignore */ } renderDev(); } }),
+    "Developer mode: change MyOps with AI");
+  const versions = S.custom?.versions || [], act = S.custom?.active ?? -1;
+  const status = el("div", { className: "muted", style: "font-size:12px;margin-top:4px", textContent: S.safeMode ? "Safe mode: customizations are off until you reload." : act >= 0 && versions[act] ? `Active: ${versions[act].summary || versions[act].request}` : "No customizations." });
+  const off = el("button", { className: "btn ghost small", type: "button", textContent: "Turn customizations off", hidden: act < 0 || S.readOnly, onclick: () => saveCustom(versions, -1) });
+  if (!on) return box.replaceChildren(toggle, status, el("div", { className: "dev-row" }, off));
+  const ta = el("textarea", { placeholder: "Describe a change, e.g. \"dark theme with green buttons\", \"a button that plans my day\", \"a loan EMI calculator\"", rows: 3, style: "width:100%;margin-top:8px" });
+  const msg = el("div", { className: "muted", style: "font-size:12px;margin-top:4px" });
+  const preview = el("div");
+  const make = el("button", { className: "btn small", type: "button", textContent: "Make it", disabled: S.readOnly || !S.sample });
+  const big = el("button", { className: "btn ghost small", type: "button", textContent: "Request a bigger change", disabled: S.readOnly || !S.sample });
+  make.onclick = async () => {
+    const req = ta.value.trim(); if (!req) return;
+    make.disabled = true; msg.textContent = "The Web Developer is working on it…";
+    try {
+      const c = await makeCustomization(req);
+      applyCustom(c);
+      msg.textContent = "Previewing. Keep it or discard it.";
+      const keep = el("button", { className: "btn small", type: "button", textContent: "Keep", onclick: async () => { await saveCustom([...versions, c], Math.min(versions.length, CUSTOM_MAX_VERSIONS - 1)); if (c.needs_code) await requestDevChange(c.needs_code); } });
+      const drop = el("button", { className: "btn ghost small", type: "button", textContent: "Discard", onclick: () => { applyCustom(); renderDev(); } });
+      preview.replaceChildren(el("div", { className: "dev-preview" },
+        el("div", { textContent: c.summary || "Customization ready." }),
+        c.panels.length ? el("div", { className: "muted", textContent: `New in the Custom tab: ${c.panels.map((x) => x.title).join(", ")}` }) : null,
+        c.quick.length ? el("div", { className: "muted", textContent: `Quick buttons: ${c.quick.map((x) => x.label).join(", ")}` }) : null,
+        c.needs_code ? el("div", { className: "muted", textContent: `Needs an app update (sent to the dev bots if you keep this): ${c.needs_code}` }) : null,
+        el("div", { className: "dev-row" }, keep, drop)));
+    } catch (e) { msg.textContent = `Couldn't make it: ${errText(e)}`; }
+    finally { make.disabled = false; }
+  };
+  big.onclick = async () => {
+    const req = ta.value.trim(); if (!req) return;
+    big.disabled = true; msg.textContent = "The CTO is writing it up for the dev bots…";
+    try { const r = await requestDevChange(req); msg.textContent = `Sent to the dev bots: "${r.title}". It ships in a MyOps update.`; ta.value = ""; }
+    catch (e) { msg.textContent = `Couldn't send it: ${errText(e)}`; }
+    finally { big.disabled = false; }
+  };
+  const history = versions.length ? el("details", { style: "font-size:13px;margin-top:8px" }, el("summary", { textContent: `Versions (${versions.length})` }),
+    ...versions.map((v, i) => el("div", { className: "dev-row", style: "align-items:center" },
+      el("span", { style: "flex:1", textContent: `${i === act ? "● " : ""}${new Date(v.at || 0).toLocaleDateString()} · ${v.summary || v.request}` }),
+      i === act ? null : el("button", { className: "btn ghost small", type: "button", textContent: "Use", disabled: S.readOnly, onclick: () => saveCustom(versions, i) })))) : null;
+  const reqs = S.devreqs.length ? el("details", { style: "font-size:13px;margin-top:6px" }, el("summary", { textContent: `Requests to the dev bots (${S.devreqs.length})` }),
+    ...byNewest(S.devreqs.map((r) => ({ ...r, updatedAt: r.createdAt }))).map((r) => el("div", { style: "margin:4px 0" }, el("strong", { textContent: `${r.status || "new"}: ` }), r.title || r.request))) : null;
+  box.replaceChildren(toggle, status, ta, el("div", { className: "dev-row" }, make, big, off), msg, preview, history, reqs);
+}
+
 // Long-term memory: chat turns older than the 12 the Manager sees are folded (in batches) into a
 // summary at config/memory, so the thread survives long chats and a switch between Claude tiers.
 const RECENT_TURNS = 12, MEMORY_BATCH = 6;
@@ -2170,6 +2343,15 @@ async function updateMemory() {
 }
 
 // ---------- Wiring ------------------------------------------------------------------
+$("modeMgr").onclick = () => setChatMode("manager");
+$("modeAI").onclick = () => setChatMode("ai");
+// Safe mode: ?safe=1, or tap the MyOps logo five times, turns customizations off until the next load.
+S.safeMode = /[?&]safe=1/.test(location.search);
+{ let taps = 0, t0 = 0; document.querySelector("header.top h1")?.addEventListener("click", () => {
+  const now = Date.now(); taps = now - t0 < 2000 ? taps + 1 : 1; t0 = now;
+  if (taps >= 5) { S.safeMode = true; applyCustom(); renderDev(); notice("Safe mode: customizations are off until you reload."); }
+}); }
+try { if (localStorage.getItem("myops.chatMode") === "ai") setTimeout(() => setChatMode("ai")); } catch { /* storage unavailable */ }
 $("compose").addEventListener("submit", (e) => { e.preventDefault(); resetRefine(); send($("input").value); });
 
 // Prompt Converter: rewrites a rough message into a precise instruction for the Manager.
@@ -2251,7 +2433,7 @@ $("atImportBtn").addEventListener("click", (e) => importFromAirtable(e.currentTa
 $("atSetupBtn").addEventListener("click", (e) => setupAirtable(e.currentTarget));
 document.querySelectorAll(".subtabs button").forEach((b) => b.addEventListener("click", () => {
   document.querySelectorAll(".subtabs button").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
-  for (const k of ["outbox", "tasks", "reports", "screener", "notes", "videos", "apps", "leads"]) $(`sub-${k}`).hidden = b.dataset.sub !== k;
+  for (const k of ["outbox", "tasks", "reports", "screener", "notes", "videos", "apps", "custom", "leads"]) $(`sub-${k}`).hidden = b.dataset.sub !== k;
   $("rightMeta").hidden = b.dataset.sub !== "leads";
 }));
 function showPane(id) {
@@ -2286,6 +2468,8 @@ renderAll();
   else mcp.listTools(AIRTABLE).then((r) => { S.atState = r?.servers?.length && r.servers[0].tools?.length ? "available" : "absent"; renderConnections(); renderAirtableButtons(); })
     .catch(() => { S.atState = "absent"; renderConnections(); renderAirtableButtons(); });
   S.root.sub("screener", loadScreener, () => {});
+  S.root.sub("settings", (rows) => { S.custom = rows.find((r) => r.id === "custom") || null; applyCustom(); renderDev(); renderCustom(); }, () => {});
+  S.root.sub("dev_requests", (rows) => { S.devreqs = rows; renderDev(); }, () => {});
   S.root.sub("spaces", (rows) => {
     S.spaces = rows;
     // The open profile was deleted (here or by someone else): go back to the main one.
