@@ -1,10 +1,13 @@
-"""The stock screener: a snapshot of technical metrics for a whole universe, and filters over it.
+"""The stock screener: a snapshot of technical metrics for a whole market, and filters over it.
+
+Markets: "in" is every liquid stock on India's NSE (with Nifty 500 industries), "us_penny" is US-listed
+stocks under $5 with real trading volume, and "us" the largest US companies.
 
 A snapshot is one flat row per stock (see FIELDS). Criteria are plain JSON so a model can write them
 from a request in the owner's words and the MyOps page can apply the same filters in the browser:
 
     {"min": {"rsi": 40}, "max": {"off_high": 5}, "is": {"above_200": true},
-     "tickers": [], "sort": "score", "desc": true, "limit": 25}
+     "tickers": [], "sectors": [], "sort": "score", "desc": true, "limit": 25}
 """
 
 from __future__ import annotations
@@ -18,17 +21,25 @@ from . import data
 from .screener import DISCLAIMER
 from .technicals import Bars, pct_change, sma, technicals
 
-MIN_DOLLAR_VOL_M = 2.0
+MARKETS: dict[str, dict[str, Any]] = {
+    "in": {"label": "India (NSE)", "currency": "₹", "benchmark": "^NSEI", "benchmark_name": "Nifty 50",
+           "min_turnover_m": 10.0, "prefilter_turnover": 500_000},
+    "us_penny": {"label": "US penny stocks (under $5)", "currency": "$", "benchmark": "IWM", "benchmark_name": "Russell 2000",
+                 "min_turnover_m": 0.5, "prefilter_turnover": 200_000, "min_price": 0.1, "max_price": 5.0},
+    "us": {"label": "US large caps", "currency": "$", "benchmark": "SPY", "benchmark_name": "S&P 500",
+           "min_turnover_m": 2.0},
+}
 # key: (label, kind, unit) - kind is "num", "bool" or "text".
 FIELDS: dict[str, tuple[str, str, str]] = {
     "ticker": ("Ticker", "text", ""),
     "name": ("Company", "text", ""),
+    "sector": ("Sector", "text", ""),
     "price": ("Price", "num", "$"),
     "chg_1d": ("Change today", "num", "%"),
     "ret_1m": ("1-month return", "num", "%"),
     "ret_3m": ("3-month return", "num", "%"),
     "ret_6m": ("6-month return", "num", "%"),
-    "rs_6m": ("6-month return vs SPY", "num", "%"),
+    "rs_6m": ("6-month return vs the market index", "num", "%"),
     "rsi": ("RSI (14)", "num", ""),
     "off_high": ("Below 52-week high", "num", "%"),
     "off_low": ("Above 52-week low", "num", "%"),
@@ -36,7 +47,7 @@ FIELDS: dict[str, tuple[str, str, str]] = {
     "tight": ("15-day price range", "num", "%"),
     "vol_ratio": ("Volume today vs 50-day avg", "num", "x"),
     "vol_trend": ("10-day vs 50-day volume", "num", "x"),
-    "dollar_vol": ("Avg daily dollar volume", "num", "$M"),
+    "dollar_vol": ("Avg daily turnover (millions, local currency)", "num", "M"),
     "atr": ("Daily range (ATR)", "num", "%"),
     "trend": ("Trend checks passed (0-4)", "num", ""),
     "score": ("Breakout setup score", "num", ""),
@@ -56,10 +67,11 @@ PRESETS: dict[str, dict[str, Any]] = {
     "Volume surge": {"min": {"vol_ratio": 2}, "sort": "vol_ratio", "desc": True},
     "Oversold": {"max": {"rsi": 30}, "sort": "rsi", "desc": False},
     "Golden cross": {"is": {"golden": True, "above_200": True}, "max": {"off_high": 10}, "sort": "ret_3m", "desc": True},
+    "Most active": {"sort": "dollar_vol", "desc": True},
 }
 
 
-def row(ticker: str, name: str, b: Bars, spy: list[float] | None) -> dict[str, Any]:
+def row(ticker: str, name: str, b: Bars, spy: list[float] | None, sector: str = "") -> dict[str, Any]:
     t = technicals(b, spy)
     c, v = b.close, b.volume
     s50, s200 = t["sma50"], t["sma200"]
@@ -67,7 +79,7 @@ def row(ticker: str, name: str, b: Bars, spy: list[float] | None) -> dict[str, A
     pct = lambda x: None if x is None else round(x * 100, 1)  # noqa: E731
     one = lambda x: None if x is None else round(x, 1)  # noqa: E731
     return {
-        "ticker": ticker, "name": name[:60], "price": t["price"],
+        "ticker": ticker.removesuffix(".NS"), "name": name[:60], "sector": sector, "price": t["price"],
         "chg_1d": pct(pct_change(c, 1)), "ret_1m": pct(pct_change(c, 21)),
         "ret_3m": one(t["return_3m_pct"]), "ret_6m": one(t["return_6m_pct"]), "rs_6m": one(t.get("rs_6m_vs_spy_pct")),
         "rsi": t["rsi14"], "off_high": t["pct_below_52w_high"], "off_low": t["pct_above_52w_low"],
@@ -81,30 +93,46 @@ def row(ticker: str, name: str, b: Bars, spy: list[float] | None) -> dict[str, A
     }
 
 
-async def snapshot(top: int = 600, tickers: list[str] | None = None) -> dict[str, Any]:
-    """Metrics for the largest US companies (or the given tickers) from a year of daily prices."""
+async def snapshot(market: str = "in", tickers: list[str] | None = None, top: int = 600) -> dict[str, Any]:
+    """Metrics for one market (see MARKETS), or for the given tickers, from a year of daily prices."""
+    if market not in MARKETS:
+        raise ValueError(f"unknown market {market!r}; choose from {', '.join(MARKETS)}")
+    m = MARKETS[market]
     started = time.time()
     async with data.client() as client:
         if tickers:
-            uni = [{"ticker": t.upper().strip(), "name": ""} for t in tickers if t.strip()]
+            suffix = ".NS" if market == "in" else ""
+            uni = [{"ticker": t.upper().strip().removesuffix(".NS") + suffix, "name": "", "sector": ""} for t in tickers if t.strip()]
         else:
-            uni = await data.universe(client, top)
-        spy = await data.history(client, "SPY")
+            if market == "in":
+                uni = await data.nse_universe(client)
+            elif market == "us_penny":
+                uni = await data.us_listed(client)
+            else:
+                uni = [u | {"sector": ""} for u in await data.universe(client, top)]
+            if "prefilter_turnover" in m:
+                # One cheap quote per stock first, so full price histories are fetched only for real candidates.
+                q = await data.quotes(client, [u["ticker"] for u in uni])
+                lo, hi = m.get("min_price", 0), m.get("max_price", float("inf"))
+                uni = [u for u in uni if u["ticker"] in q and lo <= q[u["ticker"]][0] < hi
+                       and q[u["ticker"]][0] * q[u["ticker"]][1] >= m["prefilter_turnover"]]
+        bench = await data.history(client, m["benchmark"])
         bars = await data.gather_limited([data.history(client, u["ticker"]) for u in uni])
     rows, failed, thin = [], [], []
     for u, b in zip(uni, bars):
         if isinstance(b, Exception):
             failed.append(u["ticker"])
             continue
-        r = row(u["ticker"], u["name"], b, spy.close)
-        # Thinly traded listings (mostly foreign OTC lines) give meaningless signals.
-        if (r["dollar_vol"] or 0) < MIN_DOLLAR_VOL_M and not tickers:
+        r = row(u["ticker"], u["name"], b, bench.close, u.get("sector", ""))
+        # Thinly traded stocks give meaningless signals; penny stocks must also still be under the price cap.
+        if not tickers and ((r["dollar_vol"] or 0) < m["min_turnover_m"] or r["price"] >= m.get("max_price", float("inf"))):
             thin.append(r["ticker"])
             continue
         rows.append(r)
     return {
+        "market": market, "label": m["label"], "currency": m["currency"], "benchmark": m["benchmark_name"],
         "generated_at": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
-        "universe": f"given tickers ({len(uni)})" if tickers else f"largest {len(uni)} US-listed companies (SEC list)",
+        "universe": f"given tickers ({len(uni)})" if tickers else f"{m['label']}: {len(rows)} liquid stocks",
         "count": len(rows), "failed": failed, "skipped_illiquid": thin, "seconds": round(time.time() - started, 1),
         "disclaimer": DISCLAIMER, "rows": rows,
     }
@@ -123,7 +151,8 @@ def validate(criteria: dict[str, Any]) -> dict[str, Any]:
     for k, v in (criteria.get("is") or {}).items():
         if FIELDS.get(k, ("", ""))[1] == "bool" and isinstance(v, bool):
             out["is"][k] = v
-    out["tickers"] = [str(t).upper().strip() for t in (criteria.get("tickers") or []) if str(t).strip()][:50]
+    out["tickers"] = [str(t).upper().strip().removesuffix(".NS") for t in (criteria.get("tickers") or []) if str(t).strip()][:50]
+    out["sectors"] = [str(x).strip().lower() for x in (criteria.get("sectors") or []) if str(x).strip()][:20]
     out["sort"] = criteria.get("sort") if FIELDS.get(criteria.get("sort") or "", ("", ""))[1] == "num" else "score"
     out["desc"] = bool(criteria.get("desc", True))
     try:
@@ -139,6 +168,8 @@ def apply(rows: list[dict[str, Any]], criteria: dict[str, Any]) -> list[dict[str
 
     def keep(r: dict[str, Any]) -> bool:
         if wanted and r["ticker"] not in wanted:
+            return False
+        if c["sectors"] and not any(x in (r.get("sector") or "").lower() for x in c["sectors"]):
             return False
         for k, lo in c["min"].items():
             if r.get(k) is None or r[k] < lo:
@@ -159,24 +190,29 @@ def describe_fields() -> str:
     return "; ".join(f"{k} ({label}{', ' + unit if unit else ''}, {kind})" for k, (label, kind, unit) in FIELDS.items())
 
 
+def sectors(rows: list[dict[str, Any]]) -> list[str]:
+    return sorted({r["sector"] for r in rows if r.get("sector")})
+
+
 def artifact_docs(snap: dict[str, Any], chunk: int = 120) -> list[dict[str, Any]]:
-    """The snapshot as documents for the MyOps page's `screener` collection: a `meta` doc plus row chunks."""
-    rows = snap["rows"]
+    """The snapshot as documents for the MyOps page's `screener` collection: `<market>_meta` plus row
+    chunks `<market>_c0`, `<market>_c1`, ..."""
+    rows, mk = snap["rows"], snap["market"]
     parts = [rows[i:i + chunk] for i in range(0, len(rows), chunk)] or [[]]
-    meta = {k: snap[k] for k in ("generated_at", "universe", "count", "disclaimer")} | {
-        "chunks": len(parts), "createdAt": int(time.time() * 1000), "fields": {k: list(v) for k, v in FIELDS.items()}}
-    return [{"id": "meta", "data": meta}] + [{"id": f"c{i}", "data": {"rows": p}} for i, p in enumerate(parts)]
+    meta = {k: snap[k] for k in ("market", "label", "currency", "benchmark", "generated_at", "universe", "count", "disclaimer")} | {
+        "chunks": len(parts), "createdAt": int(time.time() * 1000), "sectors": sectors(rows)}
+    return [{"id": f"{mk}_meta", "data": meta}] + [{"id": f"{mk}_c{i}", "data": {"rows": p}} for i, p in enumerate(parts)]
 
 
-def cache_path(data_dir: str) -> str:
-    return os.path.join(data_dir, "screener.json")
+def cache_path(data_dir: str, market: str = "in") -> str:
+    return os.path.join(data_dir, f"screener-{market}.json")
 
 
-def load_cached(data_dir: str, max_age_hours: float = 20) -> dict[str, Any] | None:
+def load_cached(data_dir: str, market: str = "in", max_age_hours: float = 20) -> dict[str, Any] | None:
     try:
-        if time.time() - os.path.getmtime(cache_path(data_dir)) > max_age_hours * 3600:
+        if time.time() - os.path.getmtime(cache_path(data_dir, market)) > max_age_hours * 3600:
             return None
-        with open(cache_path(data_dir)) as fh:
+        with open(cache_path(data_dir, market)) as fh:
             return json.load(fh)
     except (OSError, ValueError):
         return None
@@ -184,5 +220,5 @@ def load_cached(data_dir: str, max_age_hours: float = 20) -> dict[str, Any] | No
 
 def save_cached(data_dir: str, snap: dict[str, Any]) -> None:
     os.makedirs(data_dir, exist_ok=True)
-    with open(cache_path(data_dir), "w") as fh:
+    with open(cache_path(data_dir, snap.get("market", "in")), "w") as fh:
         json.dump(snap, fh)

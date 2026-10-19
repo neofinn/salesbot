@@ -32,20 +32,24 @@ async def _scan(args: dict[str, Any], ctx: ToolContext) -> str:
 
 
 async def _filter(args: dict[str, Any], ctx: ToolContext) -> str:
-    snap = filters.load_cached(ctx.settings.data_dir)
+    market = str(args.get("market") or "in")
+    if market not in filters.MARKETS:
+        raise ToolError(f"market must be one of {', '.join(filters.MARKETS)}")
+    snap = filters.load_cached(ctx.settings.data_dir, market)
     if snap is None:
         try:
-            snap = await filters.snapshot(600)
+            snap = await filters.snapshot(market)
         except DataError as exc:
             raise ToolError(str(exc)) from exc
         filters.save_cached(ctx.settings.data_dir, snap)
     preset = str(args.get("preset") or "")
     criteria = dict(filters.PRESETS.get(preset, {}))
-    for key in ("min", "max", "is", "tickers", "sort", "desc", "limit"):
+    for key in ("min", "max", "is", "tickers", "sectors", "sort", "desc", "limit"):
         if args.get(key) not in (None, "", {}, []):
             criteria[key] = args[key]
     hits = filters.apply(snap["rows"], criteria)
-    return json.dumps({"data_as_of": snap["generated_at"], "universe": snap["universe"], "criteria": filters.validate(criteria),
+    return json.dumps({"market": snap.get("label", market), "currency": snap.get("currency", ""), "data_as_of": snap["generated_at"],
+                       "universe": snap["universe"], "criteria": filters.validate(criteria),
                        "matches": len(hits), "stocks": hits, "disclaimer": snap["disclaimer"]}, indent=1)
 
 
@@ -53,10 +57,13 @@ num_map = {"type": "object", "additionalProperties": {"type": "number"}}
 
 STOCK_FILTER = Tool(
     "stock_filter",
-    "Stock screener over about 600 large US stocks (daily data, refreshed every 20 hours). Turn the request into "
-    "criteria: a preset and/or min/max bounds and true/false flags on these fields: " + filters.describe_fields()
-    + ". Presets: " + ", ".join(filters.PRESETS) + ".",
+    "Stock screener on daily data (refreshed every 20 hours). Markets: in = every liquid stock on India's NSE "
+    "(Nifty 500 stocks carry their industry as sector), us_penny = US-listed stocks under $5, us = US large caps. "
+    "Turn the request into criteria: a preset and/or min/max bounds and true/false flags on these fields: "
+    + filters.describe_fields() + "; sectors = words to match in the sector. Presets: " + ", ".join(filters.PRESETS) + ".",
     schema({
+        "market": {"type": "string", "enum": list(filters.MARKETS)},
+        "sectors": {"type": "array", "items": {"type": "string"}},
         "preset": {"type": "string", "enum": list(filters.PRESETS)},
         "min": num_map, "max": num_map,
         "is": {"type": "object", "additionalProperties": {"type": "boolean"}},

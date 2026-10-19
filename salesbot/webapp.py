@@ -171,6 +171,17 @@ def create_app(team: Team) -> FastAPI:
     async def history() -> list[dict[str, str]]:
         return [{"role": r, "text": t} for r, t in await team.store.recent_chat(CHAT_ID, limit=100)]
 
+    @app.post("/api/refine", dependencies=api)
+    async def refine(body: ChatIn) -> dict[str, str]:
+        text = body.text.strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="Empty message")
+        try:
+            return {"prompt": await team.refine(text, CHAT_ID)}
+        except Exception as exc:  # the owner can always send the original
+            log.exception("refine failed")
+            raise HTTPException(status_code=502, detail=f"Couldn't refine: {exc}") from exc
+
     @app.post("/api/chat", dependencies=api)
     async def chat(body: ChatIn) -> dict[str, str]:
         text = body.text.strip()

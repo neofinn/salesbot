@@ -21,15 +21,16 @@ def main() -> None:
     s.add_argument("--report-doc", default="", help="also write the report shaped for the MyOps page's Reports tab")
     a = sub.add_parser("analyze", help="technical + fundamental read on one ticker")
     a.add_argument("ticker")
-    n = sub.add_parser("snapshot", help="screener metrics for the whole universe")
-    n.add_argument("--top", type=int, default=600)
+    n = sub.add_parser("snapshot", help="screener metrics for a whole market")
+    n.add_argument("--market", default="in", choices=list(filters.MARKETS), help="in = India NSE, us_penny = US under $5, us = US large caps")
+    n.add_argument("--top", type=int, default=600, help="us market only: how many of the largest companies")
     n.add_argument("--tickers", default="")
     n.add_argument("--out", default="", help="write the snapshot (JSON) here")
     n.add_argument("--docs", default="", help="write it as documents for the MyOps page's screener collection")
     n.add_argument("--preset", default="Near breakout", help=f"print this screen: {', '.join(filters.PRESETS)}")
     args = p.parse_args()
     if args.cmd == "snapshot":
-        snap = asyncio.run(filters.snapshot(args.top, [t for t in args.tickers.split(",") if t] or None))
+        snap = asyncio.run(filters.snapshot(args.market, [t for t in args.tickers.split(",") if t] or None, args.top))
         if args.out:
             with open(args.out, "w") as fh:
                 json.dump(snap, fh)
@@ -37,9 +38,9 @@ def main() -> None:
             with open(args.docs, "w") as fh:
                 json.dump(filters.artifact_docs(snap), fh)
         hits = filters.apply(snap["rows"], filters.PRESETS.get(args.preset, {}))
-        print(f"{snap['count']} stocks ({snap['universe']}, {snap['seconds']}s, {len(snap['failed'])} failed). {args.preset}:")
+        print(f"{snap['universe']} ({snap['seconds']}s, {len(snap['failed'])} failed, {len(snap['skipped_illiquid'])} illiquid skipped). {args.preset}:")
         for r in hits:
-            print(f"  {r['ticker']:6} {r['name'][:28]:28} ${r['price']:<9} score {r['score']:<3} RSI {r['rsi']} "
+            print(f"  {r['ticker']:10} {r['name'][:28]:28} {snap['currency']}{r['price']:<9} score {r['score']:<3} RSI {r['rsi']} "
                   f"{r['off_high']}% off high, {r['to_pivot']}% below pivot")
         return
     if args.cmd == "analyze":

@@ -147,6 +147,18 @@ and the data keeper. You keep the team healthy and its data clean.
 - For problems with AI models, keys or the router, say the CTO should look at it; do not guess.
 Finish with what you checked, what you changed, and what the owner should do next, if anything."""
 
+REFINE_PROMPT = """You are the prompt converter of MyOps, a personal team of AI bot employees. You rewrite the owner's
+message into a precise instruction for the Manager, in the owner's voice (first person). Rules:
+- Keep the owner's intent exactly; never change what they want or add goals of your own.
+- Fix typos, grammar and shorthand. Resolve vague references ("it", "that stock", "same as before") from the
+  recent chat and memory.
+- Make implicit details explicit: what to do, for which market, business or people, how many, which time frame,
+  which criteria count, and what the answer should look like (list, table, short summary).
+- Where an essential detail is missing, choose the sensible default and mark it "(assumed: ...)" so the owner can
+  change it. Never invent facts, names or numbers the owner did not give or clearly imply.
+- Stock requests: this team screens India's NSE stocks and US penny stocks (under $5); name the market.
+- At most about 120 words. Reply with the rewritten instruction only: no preamble, no quotes."""
+
 # Added to every hired bot's instructions so it acts on intent instead of literal wording.
 UNDERSTAND_FIRST = """
 
@@ -380,6 +392,18 @@ class Team:
         await self.store.add_chat(chat_id, "assistant", reply)
         await self.update_memory(chat_id)
         return reply
+
+    async def refine(self, text: str, chat_id: str = "") -> str:
+        """Rewrite a rough message into a precise instruction for the Manager (shown to the owner first)."""
+        recent = await self.store.recent_chat(chat_id, 8) if chat_id else []
+        memory, _ = await self.store.get_memory(chat_id) if chat_id else ("", 0)
+        bots = ", ".join(f"{b.name} ({b.role})" for b in await self.roster()) or "none yet"
+        context = "\n".join(f"{'Owner' if role == 'user' else 'Manager'}: {t[:600]}" for role, t in recent)
+        prompt = (f"Team: core staff {', '.join(STAFF)}; hired bots: {bots}.\n\n"
+                  + (f"Long-term memory:\n{memory}\n\n" if memory else "")
+                  + f"Recent chat:\n{context or '(none)'}\n\nOwner's message to rewrite:\n{text}")
+        out = await self._staff("prompt_converter", REFINE_PROMPT, []).run(prompt)
+        return out.strip().strip('"').strip()
 
     # --- long-term chat memory ------------------------------------------------
 
