@@ -396,7 +396,7 @@ textarea, input, select {
           <div class="mode-switch" role="tablist" aria-label="Chat with"><button type="button" role="tab" id="modeMgr" aria-selected="true">Team</button><button type="button" role="tab" id="modeAI" aria-selected="false">Direct AI</button></div>
           <span class="refine-box">
             <button class="pill-btn" id="refineBtn" type="button" title="Rewrite my message as a precise instruction; you review it before sending">Make precise</button>
-            <label class="auto" title="Make every message precise automatically before the Manager sees it"><input type="checkbox" id="autoRefine"> Auto</label>
+            <label class="auto" title="On by default: every message is made precise (by the fast model) before the Manager sees it, so fewer rounds are wasted. Short replies like 'yes' are sent as written."><input type="checkbox" id="autoRefine" checked> Auto</label>
           </span>
           <span class="grow"></span>
           <button class="send" id="sendBtn" type="submit" aria-label="Send"><svg class="i" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
@@ -2360,7 +2360,7 @@ async function send(text) {
   syncCompose(); renderChat();
   let reply, steps, ask = text;
   try {
-    if (autoRefineOn()) {
+    if (autoRefineOn() && needsRefine(text)) {
       const st = step("Prompt Converter is making your message precise…");
       try { ask = await refinePrompt(text, S.ctl.signal); userMsg.refined = ask; st.done("Prompt Converter made it precise"); }
       catch (e) { if (e?.code === "cancelled") throw e; st.fail("Prompt Converter skipped (sent as written)"); }
@@ -2592,7 +2592,11 @@ async function refinePrompt(text, signal) {
 let unrefined = null;
 const resetRefine = () => { unrefined = null; $("refineBtn").textContent = "Make precise"; };
 const autoRefineOn = () => $("autoRefine").checked;
-try { $("autoRefine").checked = localStorage.getItem("myops.autoRefine") === "1"; } catch { /* storage unavailable */ }
+// Short replies ("yes", "go ahead") are already clear: rewriting them only spends tokens.
+const needsRefine = (t) => t.trim().split(/\s+/).length >= 4 && !/^(yes|yeah|yep|ok|okay|no|nope|thanks|thank you|go|go ahead|do it|sure|haan|ha|nahi|stop|cancel)[.! ]*$/i.test(t.trim());
+// On by default (a precise brief saves the Manager wasted rounds); the owner can switch it off.
+$("autoRefine").checked = true;
+try { if (localStorage.getItem("myops.autoRefine") === "0") $("autoRefine").checked = false; } catch { /* storage unavailable */ }
 $("autoRefine").addEventListener("change", () => { try { localStorage.setItem("myops.autoRefine", $("autoRefine").checked ? "1" : "0"); } catch { /* storage unavailable */ } });
 $("refineBtn").addEventListener("click", async () => {
   const b = $("refineBtn"), text = $("input").value.trim();

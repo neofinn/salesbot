@@ -50,6 +50,7 @@ FIELDS: tuple[Field, ...] = (
     Field("openclaw_agent", "OpenClaw agent id", "openclaw", "text", "main"),
     Field("public_url", "Public address of this server (for phone apps)", "behaviour", "text", "https://ops.example.com"),
     Field("require_approval", "Require my approval before emails/texts are sent", "behaviour", "bool"),
+    Field("auto_refine", "Make every message precise before the Manager sees it (fewer wasted rounds)", "behaviour", "bool"),
 )
 FIELDS_BY_KEY = {f.key: f for f in FIELDS}
 

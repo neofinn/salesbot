@@ -38,6 +38,13 @@ RECENT_MESSAGES = 20
 MEMORY_BATCH = 6
 MEMORY_MAX_CHARS = 4000
 NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
+SHORT_REPLY_RE = re.compile(r"^(yes|yeah|yep|ok|okay|no|nope|thanks|thank you|go|go ahead|do it|sure|haan|ha|nahi|stop|cancel)[.! ]*$", re.I)
+
+
+def needs_refine(text: str) -> bool:
+    """Short replies ("yes", "go ahead") are already clear; rewriting them only spends tokens."""
+    text = text.strip()
+    return len(text.split()) >= 4 and not SHORT_REPLY_RE.match(text)
 
 MANAGER_PROMPT = """You are the Manager of MyOps, a personal team of AI bot employees that works for one owner.
 The team handles the owner's work and personal operations: research, planning, writing, follow-ups,
@@ -405,8 +412,14 @@ class Team:
             for role, t in await self.store.recent_chat(chat_id, RECENT_MESSAGES)
         ]
         memory, _ = await self.store.get_memory(chat_id)
+        ask = text
+        if self.settings.auto_refine and needs_refine(text):
+            try:
+                ask = await self.refine(text, chat_id) or text
+            except Exception:  # the rewrite is an optimisation: fall back to the owner's words
+                log.warning("prompt converter failed; sending the message as written", exc_info=True)
         try:
-            reply = await self.manager(memory, chat_id).run(text, history)
+            reply = await self.manager(memory, chat_id).run(ask, history)
         except LLMError as exc:
             reply = f"Configuration problem: {exc}"
         except Exception as exc:  # provider SDK errors: bad/missing key, network, rate limits
