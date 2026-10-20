@@ -350,6 +350,7 @@ const STAFF = [
   { team: "Development", name: "android_dev", title: "Android Developer", mark: "A", role: "Packages apps for Android: a native project that builds an installable APK." },
   { team: "Development", name: "ios_dev", title: "iOS Developer", mark: "I", role: "Packages apps for iPhone: home-screen install, and a native Xcode project for TestFlight." },
   { team: "Research", name: "screener", title: "Screener Analyst", mark: "Q", role: "Screens Indian (NSE) stocks and US penny stocks on trend, momentum, volume and sector from a request in your own words; results in Screener." },
+  { team: "Research", name: "githunter", title: "Git Hunter", mark: "G", role: "Scans GitHub for open-source repos that fit your work: what each does for you, license, activity and risks; shortlist saved in Notes." },
   { team: "Content", name: "scribe", title: "Scribe", mark: "S", role: "Keeps the record: minutes, decisions, summaries and documents, saved in Notes." },
   { team: "Content", name: "video", title: "Video Producer", mark: "V", role: "Scripts and storyboards short videos, then renders them for you to download." },
   { team: "Maintenance", name: "sysmaint", title: "Systems Maintainer", mark: "Y", role: "Checks the team's health: connections, stuck or failing tasks, bots whose tools can't work." },
@@ -900,6 +901,7 @@ function managerPrompt(history, message, results, round) {
     Object.keys(MARKETS).some(screenerFor)
       ? `- The Screener Analyst screens ${Object.keys(MARKETS).filter(screenerFor).map((mk) => `${MARKETS[mk]} (${screenerFor(mk).rows.length} stocks, data as of ${screenerFor(mk).meta.generated_at})`).join(" and ")} on price, returns, RSI, 52-week high/low, breakout pivot and setup score, volume and moving averages (Indian Nifty 500 stocks also by sector). Use a screen action with the request in plain words for any stock screening question; it picks the market and filters itself and the results show in the Screener tab.`
       : "- The Screener Analyst screens Indian (NSE) and US penny stocks once the research engine has published market snapshots (none yet): a screen action will say so.",
+    "- The Git Hunter scans GitHub for open-source repositories (libraries, tools, apps, templates) that fit the owner's work and ranks them on fit, activity, license and risk; the shortlist is saved in Notes. Use a hunt_repos action with the need in plain words (what it must do, platform or language, limits such as free for commercial use or self-hosted).",
     "- The CTO answers technical questions (which connections and data are live, why a bot's tool failed, what a job needs set up): use an ask_cto action.",
     S.openclaw ? "- OpenClaw, the owner's own browsing agent, can research the live web with a real browser (company sites, news, prices, listings). Use a browse action with a complete research task; it reads only and never logs in, buys, posts or sends anything. Hand longer research to a bot afterwards with its findings." : "",
     "",
@@ -915,7 +917,7 @@ function managerPrompt(history, message, results, round) {
     results.length ? "\nWhat happened with the actions you already took for this message:\n" + results.map((r, i) => `${i + 1}. ${r}`).join("\n") : "",
     "",
     "Reply with ONLY a JSON object:",
-    '{"reply": "your message to the owner", "actions": [ {"type": "hire", "name": "snake_case_name", "job": "job description"}, {"type": "delegate", "bot": "bot_name", "task": "complete, self-contained brief including every detail the bot needs (names, emails, tone)"}, {"type": "fire", "bot": "bot_name"}, {"type": "ask_cto", "question": "technical question"}, {"type": "scribe", "request": "what to write or update"}, {"type": "make_video", "request": "video brief"}, {"type": "screen", "request": "the screening request, in plain words"}' + (S.openclaw ? ', {"type": "browse", "task": "web research task for OpenClaw"}' : "") + ', {"type": "build_app", "request": "app brief", "app_id": "optional, to update an app"}, {"type": "maintenance", "mode": "check"} ]}',
+    '{"reply": "your message to the owner", "actions": [ {"type": "hire", "name": "snake_case_name", "job": "job description"}, {"type": "delegate", "bot": "bot_name", "task": "complete, self-contained brief including every detail the bot needs (names, emails, tone)"}, {"type": "fire", "bot": "bot_name"}, {"type": "ask_cto", "question": "technical question"}, {"type": "scribe", "request": "what to write or update"}, {"type": "make_video", "request": "video brief"}, {"type": "screen", "request": "the screening request, in plain words"}, {"type": "hunt_repos", "request": "what the owner needs from open-source code"}' + (S.openclaw ? ', {"type": "browse", "task": "web research task for OpenClaw"}' : "") + ', {"type": "build_app", "request": "app brief", "app_id": "optional, to update an app"}, {"type": "maintenance", "mode": "check"} ]}',
     "Actions run in order, so you may hire a bot and delegate to it in the same list. Delegate to a bot only if it is on the roster or hired earlier in the list.",
     "While actions remain, keep \"reply\" to one short line. When the work is finished, return \"actions\": [] and make \"reply\" your final report: what was done and by whom, the results, and draft numbers waiting in the out-tray. Plain text, no markdown headings.",
     round >= MAX_ROUNDS ? "This is your last round: \"actions\" must be []." : "",
@@ -950,6 +952,7 @@ async function runAction(a, signal) {
   if (type === "scribe") return scribeWrite(String(a.request || ""), signal);
   if (type === "make_video") return produceVideo(String(a.request || ""), signal);
   if (type === "screen") return screenStocks(String(a.request || ""), signal);
+  if (type === "hunt_repos") return huntRepos(String(a.request || ""), signal);
   if (type === "browse") return browseWeb(String(a.task || ""), signal);
   if (type === "build_app") return buildApp(String(a.request || ""), String(a.app_id || ""), signal);
   if (type === "maintenance") return runMaintenance(a.mode === "fix" ? "fix" : "check", signal);
@@ -974,6 +977,82 @@ async function browseWeb(task, signal) {
     st.done("OpenClaw finished browsing");
     return `browse (OpenClaw, live web; facts as reported with their sources): ${String(text).slice(0, 8000)}`;
   } catch (e) { st.fail("OpenClaw couldn't finish"); if (e?.code === "cancelled") throw e; return `browse failed (${e?.message || e?.code || "error"}).`; }
+}
+
+// ---------- Git Hunter: open-source repos that fit the owner's work ----------
+async function githubSearch(q, signal) {
+  const res = await fetch(`https://api.github.com/search/repositories?q=${encodeURIComponent(q)}&per_page=10`,
+    { headers: { accept: "application/vnd.github+json" }, signal });
+  if (res.status === 403 || res.status === 429) throw Object.assign(new Error("GitHub's search limit is used up for now; try again in a minute."), { code: "rate_limited" });
+  if (!res.ok) throw new Error(`GitHub search error ${res.status}`);
+  return ((await res.json()).items || []).map((r) => ({
+    repo: r.full_name, url: r.html_url, about: String(r.description || "").slice(0, 300), stars: r.stargazers_count, forks: r.forks_count,
+    language: r.language || "", license: r.license?.spdx_id || "none", pushed: String(r.pushed_at || "").slice(0, 10), archived: !!r.archived, topics: (r.topics || []).slice(0, 6),
+  }));
+}
+async function huntRepos(request, signal) {
+  if (!request) return "hunt_repos: no request given.";
+  const st = step("Git Hunter is working out what to search…");
+  const yearAgo = new Date(Date.now() - 365 * 864e5).toISOString().slice(0, 10);
+  let plan;
+  try {
+    plan = await askJson([
+      `You are the Git Hunter of MyOps, ${orgName()}'s team of AI bot employees. You find open-source GitHub repositories that fit the owner's actual work, not repos whose names merely match their words.`,
+      `Who the team works for:\n${profileBrief()}`,
+      `Need: ${request}`,
+      `Work out the job the code must do, the platform or language, and limits (commercial use, self-hosted, offline, India-specific data...). Then write 2 to 4 GitHub repository search queries: the words developers would use (synonyms, library names, not the owner's sentence), with qualifiers such as language:python, stars:>50, pushed:>${yearAgo}, archived:false. Keep each query to 2-4 keywords so it returns results.`,
+      'Reply with ONLY a JSON object: {"need": "one sentence: what you are looking for and why", "queries": ["...", "..."]}',
+    ].join("\n\n"), signal);
+  } catch (e) { st.fail("Git Hunter couldn't plan the search"); if (e?.code === "cancelled") throw e; return `hunt_repos failed (${errText(e)}).`; }
+  const queries = (Array.isArray(plan?.queries) ? plan.queries : []).map(String).filter(Boolean).slice(0, 4);
+  if (!queries.length) queries.push(request.slice(0, 80));
+  st.done(`Git Hunter: ${String(plan?.need || request).slice(0, 140)}`);
+  const st2 = step(`Git Hunter is scanning GitHub (${queries.length} searches)…`);
+  const found = new Map();
+  let source = "github", failure = "";
+  for (const q of queries) {
+    try { for (const r of await githubSearch(q, signal)) if (!found.has(r.repo)) found.set(r.repo, { ...r, query: q }); }
+    catch (e) { if (signal?.aborted || e?.name === "AbortError") throw { code: "cancelled" }; failure = e?.message || "GitHub couldn't be reached"; if (e?.code !== "rate_limited") break; }
+  }
+  let browsed = "";
+  if (!found.size && S.openclaw) {
+    try { browsed = String(await S.openclaw.browse(`Search github.com for open-source repositories for: ${plan?.need || request}. Queries to try: ${queries.join(" | ")}. For the best 8, report owner/name, URL, description, stars, license and last update date exactly as shown.`, signal)).slice(0, 8000); source = "openclaw"; }
+    catch (e) { if (e?.code === "cancelled") throw e; }
+  }
+  if (!found.size && !browsed) source = "knowledge";
+  st2.done(source === "github" ? `Git Hunter found ${found.size} candidate repos` : source === "openclaw" ? "Git Hunter searched GitHub through OpenClaw" : `Git Hunter couldn't reach GitHub (${failure || "blocked here"}); using what it already knows`);
+  const st3 = step("Git Hunter is ranking the shortlist…");
+  const cands = [...found.values()].sort((a, b) => b.stars - a.stars).slice(0, 30);
+  let out;
+  try {
+    out = await askJson([
+      `You are the Git Hunter of MyOps, ${orgName()}'s team of AI bot employees.`,
+      `Who the team works for:\n${profileBrief()}`,
+      `Need: ${request}\nAs understood: ${plan?.need || request}`,
+      source === "github" ? `Candidates from GitHub search (JSON, live data): ${JSON.stringify(cands)}`
+        : source === "openclaw" ? `What OpenClaw found on github.com:\n${browsed}`
+        : "GitHub could not be searched from here. Recommend only well-known repositories you are sure exist, and say the numbers are from memory and must be checked.",
+      `Pick the best 3 to 8 for the need and rank them. Judge fit first, then activity (last push; before ${yearAgo} is stale; archived is out), adoption (stars, forks), license (MIT/Apache/BSD easy; GPL/AGPL bind products that ship or host it; none = no permission to reuse) and risk (unofficial scrapers that break, abandoned). Use only facts given above; never invent repos, numbers or features.`,
+      'Reply with ONLY a JSON object: {"title": "short title", "summary": "two sentences: what you searched and the top pick", "picks": [{"repo": "owner/name", "url": "https://github.com/owner/name", "why": "what it does for the owner and why it fits", "license": "", "stars": 0, "last_push": "", "caution": ""}]}',
+    ].join("\n\n"), signal);
+  } catch (e) { st3.fail("Git Hunter couldn't rank the repos"); if (e?.code === "cancelled") throw e; return `hunt_repos failed (${errText(e)}).`; }
+  const picks = (Array.isArray(out?.picks) ? out.picks : []).slice(0, 8)
+    .filter((p) => /^[\w.-]+\/[\w.-]+$/.test(String(p?.repo || "")) && (source !== "github" || found.has(p.repo)));
+  if (!picks.length) { st3.fail("Git Hunter found nothing that fits"); return `hunt_repos: nothing on GitHub fit "${request.slice(0, 120)}"${failure ? ` (${failure})` : ""}. Try describing the need differently.`; }
+  const how = source === "github" ? `Searched GitHub live on ${new Date().toLocaleDateString()} with: ${queries.map((q) => "`" + q + "`").join(", ")}.`
+    : source === "openclaw" ? "Searched github.com through OpenClaw." : "GitHub could not be searched from here, so this list is from the AI's own knowledge: check each link, the numbers may be out of date.";
+  const title = `Git Hunter: ${String(out?.title || request).slice(0, 120)}`;
+  const body = [`**Need:** ${request}`, "", String(out?.summary || ""), "", ...picks.map((p, i) => {
+    const live = found.get(p.repo);
+    const facts = live ? `${live.stars} stars · ${live.language || "n/a"} · ${live.license} license · last push ${live.pushed}` : [p.stars ? `${p.stars} stars` : "", p.license ? `${p.license} license` : "", p.last_push ? `last push ${p.last_push}` : ""].filter(Boolean).join(" · ");
+    return `${i + 1}. ${p.repo} — ${String(p.why || "").slice(0, 400)}\n   https://github.com/${p.repo}${facts ? `\n   ${facts}` : ""}${p.caution ? `\n   Caution: ${String(p.caution).slice(0, 300)}` : ""}`;
+  }), "", `_${how}_`].join("\n");
+  const id = shortId("n", new Set(S.notes.map((n) => n.id)));
+  const doc = { title, body, by: "githunter", request: request.slice(0, 500), createdAt: Date.now(), updatedAt: Date.now() };
+  await S.store.set("notes", id, doc).catch(() => {});
+  S.notes.push({ id, ...doc });
+  st3.done(`Git Hunter shortlisted ${picks.length} repo${picks.length === 1 ? "" : "s"} (saved in Notes)`);
+  return `hunt_repos (${source === "github" ? "live GitHub search" : source === "openclaw" ? "GitHub via OpenClaw" : "AI knowledge only, GitHub unreachable: say the list must be checked"}): ${out?.summary || ""} Shortlist (JSON): ${JSON.stringify(picks.map((p) => ({ repo: p.repo, why: short(p.why, 200), license: found.get(p.repo)?.license || p.license, stars: found.get(p.repo)?.stars ?? p.stars, caution: p.caution || "" })))}. Saved as the note "${title}" in Notes.`;
 }
 
 // ---------- Scribe: the written record (notes collection) ----------------------------

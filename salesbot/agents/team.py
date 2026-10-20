@@ -23,13 +23,15 @@ from .agent import Agent
 
 log = logging.getLogger(__name__)
 
-STAFF = ("manager", "hr", "recruiter", "cto", "android_dev", "ios_dev", "scribe", "video_producer", "maintenance")
+STAFF = ("manager", "hr", "recruiter", "cto", "android_dev", "ios_dev", "scribe", "video_producer", "maintenance",
+         "git_hunter")
 TEAMS = {
     "Leadership": ("manager", "cto"),
     "People": ("recruiter", "hr"),
     "Development": ("android_dev", "ios_dev"),
     "Content": ("scribe", "video_producer"),
     "Maintenance": ("maintenance",),
+    "Research": ("git_hunter",),
 }
 # Chat turns kept word for word; older ones are folded into the chat's long-term memory.
 RECENT_MESSAGES = 20
@@ -62,6 +64,8 @@ lead generation, reporting and admin. The owner talks to you in chat. Your job:
 - Ask the Maintenance team (ask_maintenance) for a health check of the team and its data (stuck or failed
   tasks, duplicate contacts, stale approvals, disk and backups), a database backup, or a clean-up. Ask for
   fixes only when the owner wants them.
+- Ask the Git Hunter (ask_git_hunter) to find open-source GitHub repositories that fit the owner's work:
+  libraries, tools, apps or templates to use, with how well each fits and how alive and safe it is.
 - Report back to the owner concisely: what was done, by whom, results, and anything awaiting their
   approval (emails and texts may be queued for approval; mention the action numbers).
 Check list_team before delegating or hiring. Do the work through the team, not yourself.
@@ -159,6 +163,19 @@ message into a precise instruction for the Manager, in the owner's voice (first 
 - Stock requests: this team screens India's NSE stocks and US penny stocks (under $5); name the market.
 - At most about 120 words. Reply with the rewritten instruction only: no preamble, no quotes."""
 
+GIT_HUNTER_PROMPT = """You are the Git Hunter of MyOps, a personal team of AI bot employees. You find open-source GitHub
+repositories that fit the owner's actual work, not just repos whose names match their words.
+1. Work out the need: what job the repo must do, for which platform or language, and any limits (free to use
+   commercially, self-hosted, works offline, India-specific data and so on). Use what you know about the owner.
+2. Search with several focused queries (github_search): synonyms and the terms developers use, plus qualifiers
+   such as language:, stars:>100, pushed:>(about a year ago), archived:false. Read the shortlist with github_repo.
+3. Judge each candidate on fit, activity (recent pushes and releases), adoption (stars, forks), license
+   (MIT/Apache/BSD are easy; GPL/AGPL bind products that ship or host it) and risk (abandoned, unofficial
+   scraping that may break, security warnings in the README).
+4. Report the best 3 to 8: name and link, what it does for the owner, why it fits, license, last activity, and
+   any caution. Say how you searched. Never invent repositories, numbers or features: use only what the tools
+   returned. You only read public repos; you never clone, install or run code."""
+
 # Added to every hired bot's instructions so it acts on intent instead of literal wording.
 UNDERSTAND_FIRST = """
 
@@ -248,6 +265,13 @@ class Team:
                     "Ask the Maintenance team for a health check, a database backup, or a clean-up and get its report.",
                     schema({"request": string("What to check or fix")}, ["request"]),
                     self._tool_ask_maintenance,
+                ),
+                Tool(
+                    "ask_git_hunter",
+                    "Ask the Git Hunter to find open-source GitHub repositories for a need and get its ranked shortlist.",
+                    schema({"request": string("The need: what the repo must do, platform or language, any limits")},
+                           ["request"]),
+                    lambda args, ctx: self.git_hunter().run(args["request"]),
                 ),
                 Tool("list_team", "List the bots currently on the team.", schema({}), self._tool_list_team),
                 Tool(
@@ -346,6 +370,9 @@ class Team:
             }, ["title", "aspect", "scenes"]), self._tool_create_video),
             Tool("list_videos", "List the videos made so far.", schema({}), self._tool_list_videos),
         ])
+
+    def git_hunter(self) -> Agent:
+        return self._staff("git_hunter", GIT_HUNTER_PROMPT, [CATALOG["github_search"], CATALOG["github_repo"]])
 
     def maintenance(self) -> Agent:
         return self._staff("maintenance", MAINTENANCE_PROMPT, [
