@@ -79,6 +79,7 @@ class Settings:
     twilio_from_number: str = ""
 
     brave_api_key: str = ""
+    github_token: str = ""
 
     # OpenClaw (formerly Clawdbot) Gateway with its OpenAI-compatible HTTP endpoint enabled.
     openclaw_url: str = ""
@@ -135,6 +136,7 @@ class Settings:
             twilio_auth_token=_env("TWILIO_AUTH_TOKEN"),
             twilio_from_number=_env("TWILIO_FROM_NUMBER"),
             brave_api_key=_env("BRAVE_API_KEY"),
+            github_token=_env("GITHUB_TOKEN"),
             openclaw_url=_env("OPENCLAW_URL"),
             openclaw_token=_env("OPENCLAW_TOKEN"),
             openclaw_agent=_env("OPENCLAW_AGENT", cls.openclaw_agent),
