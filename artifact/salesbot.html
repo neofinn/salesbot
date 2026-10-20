@@ -83,6 +83,8 @@ svg.i { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor;
 .nav button svg.i { color: var(--muted); }
 .nav button[aria-selected="true"] svg.i { color: var(--ink); }
 .nav button .count { margin-left: auto; }
+.nav button.nav-more { color: var(--muted); font-size: 13px; padding: 6px 10px; margin-top: 4px; }
+.compose-note:empty { display: none; }
 .side-foot { border-top: 1px solid var(--line); padding: 10px 4px 0; display: flex; flex-direction: column; gap: 6px; }
 .side-foot .row { display: flex; gap: 6px; align-items: center; }
 .space-sel { width: 100%; padding: 7px 10px; font-size: 14px; font-weight: 600; border-radius: 10px; background: var(--surface); }
@@ -346,6 +348,7 @@ textarea, input, select {
     <div class="group">Build</div>
     <button role="tab" data-view="apps" aria-selected="false"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Apps</button>
     <button role="tab" data-view="videos" aria-selected="false"><svg class="i" viewBox="0 0 24 24"><rect x="2" y="5" width="15" height="14" rx="2"/><path d="M17 10l5-3v10l-5-3z"/></svg>Videos</button>
+    <button type="button" class="nav-more" id="navMore" hidden></button>
     <button role="tab" data-view="custom" aria-selected="false" id="customTab" hidden><svg class="i" viewBox="0 0 24 24"><path d="M12 3l2.5 5.5L20 9l-4 4 1 6-5-3-5 3 1-6-4-4 5.5-.5z"/></svg>Custom</button>
   </nav>
   <div class="side-foot">
@@ -404,7 +407,7 @@ textarea, input, select {
         </div>
       </form>
       <div class="suggest-host" id="suggestHost"></div>
-      <div class="compose-note">Emails and texts wait in your Out-tray until you approve them.</div>
+      <div class="compose-note" id="composeNote"></div>
     </div>
   </section>
 
@@ -687,13 +690,17 @@ function renderChat() {
   if (!nodes.length) {
     nodes.push(el("div", { className: "empty" },
       el("h3", { textContent: S.profile ? `Hi${S.profile.company ? ", " + S.profile.company.split(/[\s,]/)[0] : ""}. What should the team work on?` : "What should the team work on?" }),
-      el("p", { textContent: "The Manager plans the work and hands it to the right bot, hiring one through the Recruiter and HR when nobody fits. Emails and texts wait in your Out-tray for approval." })));
+      el("p", { textContent: "The Manager plans the work and hands it to the right bot, hiring one through the Recruiter and HR when nobody fits." + (teamFocus().outreach ? " Emails and texts wait in your Out-tray for approval." : "") })));
+    const f = teamFocus();
     $("suggestHost").append(el("div", { className: "suggest" }, [
         S.reports.length ? "Have the analysts review the latest research report: the best 3 setups, with entry (pivot), stop, risk per share and what could go wrong." : null,
+        f.stocks ? "Screen Nifty 500 stocks that are near a breakout with rising volume, strongest first." : null,
+        f.stocks ? "Find US penny stocks under $5 with strong 3-month momentum and good liquidity." : null,
+        f.stocks && !f.outreach ? "Find open-source code I can use to pull NSE price and F&O data, with how well each option fits." : null,
         "Who is on the team, and what can each bot do?",
         "Plan my week around my goals: what I should do each day, and what the team can take off my plate.",
-        "Find 10 companies that match my ideal customer, with the right person at each, and add them as contacts.",
-        "Research my five newest contacts (recent news and open jobs) and draft a short, personal intro email to each.",
+        f.outreach ? "Find 10 companies that match my ideal customer, with the right person at each, and add them as contacts." : null,
+        f.outreach ? "Research my five newest contacts (recent news and open jobs) and draft a short, personal intro email to each." : null,
       ].filter(Boolean).map((t) => el("button", { type: "button", textContent: t, disabled: S.readOnly, onclick: () => send(t) }))));
   }
   log.replaceChildren(...nodes);
@@ -840,6 +847,7 @@ function renderTasks() {
 }
 
 function renderOutbox() {
+  renderNav();
   const items = [...S.outbox].sort((a, b) => (b.n || 0) - (a.n || 0));
   const pending = items.filter((d) => d.status === "pending").length;
   for (const id of ["outCount", "tabCount"]) { $(id).hidden = !pending; $(id).textContent = pending; }
@@ -913,7 +921,37 @@ function fetchEmailButton(l) {
   return b;
 }
 
-function renderAll() { renderTeam(); renderConnections(); renderOperation(); renderChat(); renderOutbox(); renderTasks(); renderReports(); renderScreener(); renderNotes(); renderVideos(); renderApps(); renderLeads(); renderDev(); renderCustom(); syncCompose(); }
+// What this team is for, from the profile and the bots' tools: sections and suggestions follow it, so a
+// trading team isn't shown an email out-tray and a sales team isn't pushed towards the stock screener.
+const FOCUS_WORDS = {
+  outreach: /\b(sales?|leads?|prospect\w*|clients?|customers?|outreach|emails?|follow[- ]?ups?|crm|marketing|b2b|agency|recruit\w*|partners?)\b/i,
+  stocks: /\b(stocks?|shares?|trad(e|es|er|ers|ing)|invest\w*|nse|bse|nifty|sensex|penny|equit(y|ies)|portfolio|markets?|swing|intraday|f&o|options|demat|zerodha|screen\w*|breakouts?)\b/i,
+};
+function teamFocus() {
+  const p = S.profile || {};
+  const text = [p.about, p.customers, p.goals, p.company].join(" ");
+  const tools = new Set(S.bots.flatMap((b) => b.tools || []));
+  return {
+    outreach: FOCUS_WORDS.outreach.test(text) || ["draft_email", "draft_sms", "find_leads", "crm_write"].some((t) => tools.has(t)) || S.outbox.length > 0 || S.leads.length > 0,
+    stocks: FOCUS_WORDS.stocks.test(text) || tools.has("research_read") || S.reports.length > 0,
+  };
+}
+function renderNav() {
+  const f = teamFocus(), all = !!S.showAllNav;
+  const show = { outbox: f.outreach, leads: f.outreach, screener: f.stocks || !S.profile, reports: f.stocks || S.reports.length > 0 };
+  for (const [v, on] of Object.entries(show)) { const b = document.querySelector(`.nav [data-view="${v}"]`); if (b) b.hidden = !(on || all); }
+  const hiddenCount = Object.values(show).filter((x) => !x).length;
+  $("navMore").hidden = !hiddenCount; $("navMore").textContent = all ? "Show fewer sections" : `More sections (${hiddenCount})`;
+  document.querySelectorAll(".nav .group").forEach((g) => {
+    let n = g.nextElementSibling, any = false;
+    while (n && !n.classList.contains("group") && n.tagName === "BUTTON" && n.id !== "navMore") { if (!n.hidden) any = true; n = n.nextElementSibling; }
+    g.hidden = !any;
+  });
+  $("composeNote").textContent = f.outreach ? "Emails and texts wait in your Out-tray until you approve them." : f.stocks ? "Research only, not financial advice." : "";
+  const cur = document.querySelector(`.nav [data-view="${S.view}"]`);
+  if (cur?.hidden) showView("chat");
+}
+function renderAll() { renderNav(); renderTeam(); renderConnections(); renderOperation(); renderChat(); renderOutbox(); renderTasks(); renderReports(); renderScreener(); renderNotes(); renderVideos(); renderApps(); renderLeads(); renderDev(); renderCustom(); syncCompose(); }
 
 function syncCompose() {
   $("sendBtn").hidden = S.busy; $("stopBtn").hidden = !S.busy;
@@ -2653,7 +2691,7 @@ $("atImportBtn").addEventListener("click", (e) => importFromAirtable(e.currentTa
 $("atSetupBtn").addEventListener("click", (e) => setupAirtable(e.currentTarget));
 const VIEWS = { chat: "Chat", team: "Team", outbox: "Out-tray", tasks: "Tasks", leads: "Contacts", notes: "Notes", screener: "Screener", reports: "Reports", apps: "Apps", videos: "Videos", custom: "Custom" };
 function showView(v) {
-  if (!VIEWS[v] || (v === "custom" && $("customTab").hidden)) v = "chat";
+  if (!VIEWS[v] || document.querySelector(`.nav [data-view="${v}"]`)?.hidden) v = "chat";
   S.view = v; $("app").dataset.view = v;
   document.querySelectorAll(".nav button").forEach((x) => x.setAttribute("aria-selected", String(x.dataset.view === v)));
   const pane = v === "chat" ? "pane-chat" : v === "team" ? "pane-team" : "pane-right";
@@ -2667,7 +2705,8 @@ function showView(v) {
   try { localStorage.setItem("myops.view", v); } catch { /* storage unavailable */ }
 }
 function showPane(id) { showView(id === "pane-team" ? "team" : id === "pane-right" ? "outbox" : "chat"); }
-document.querySelectorAll(".nav button").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
+document.querySelectorAll(".nav button[data-view]").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
+$("navMore").addEventListener("click", () => { S.showAllNav = !S.showAllNav; renderNav(); });
 $("menuBtn").addEventListener("click", () => $("app").classList.add("drawer"));
 $("scrim").addEventListener("click", () => $("app").classList.remove("drawer"));
 $("newChatBtn").addEventListener("click", () => { showView("chat"); $("input").focus(); });
