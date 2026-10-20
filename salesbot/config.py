@@ -98,6 +98,7 @@ class Settings:
     data_dir: str = "data"
     # When true, emails and SMS are queued for human approval instead of sent.
     require_approval: bool = True
+    auto_refine: bool = True  # Prompt Converter rewrites each message before the Manager sees it
     max_agent_steps: int = 12
     # True when SALESBOT_DEFAULT_MODEL is unset, so the staff model follows
     # whichever provider is connected.
@@ -147,6 +148,7 @@ class Settings:
             public_url=_env("SALESBOT_PUBLIC_URL").rstrip("/"),
             data_dir=_env("SALESBOT_DATA_DIR", cls.data_dir),
             require_approval=_env_bool("SALESBOT_REQUIRE_APPROVAL", True),
+            auto_refine=_env_bool("SALESBOT_AUTO_REFINE", True),
             max_agent_steps=int(_env("SALESBOT_MAX_AGENT_STEPS", "12")),
         )
         if settings.default_model_auto:

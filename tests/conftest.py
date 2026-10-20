@@ -41,7 +41,8 @@ def no_claude_cli(monkeypatch):
 
 @pytest.fixture
 def settings(tmp_path):
-    return Settings(default_model="fake:test", data_dir=str(tmp_path), require_approval=True)
+    # Auto-refine off by default here so scripted Manager replies are not consumed by the Prompt Converter.
+    return Settings(default_model="fake:test", data_dir=str(tmp_path), require_approval=True, auto_refine=False)
 
 
 @pytest.fixture

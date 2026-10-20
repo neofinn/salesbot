@@ -79,3 +79,20 @@ def test_refine_api(tmp_path):
         assert client.post("/api/refine", json={"text": "penny breakout"}).json() == {"prompt": "Find 10 US penny stocks near a breakout."}
         assert client.post("/api/refine", json={"text": " "}).status_code == 400
         assert "Make precise" in client.get("/").text
+
+
+async def test_auto_refine_sends_the_precise_prompt_to_the_manager(team, fake):
+    team.settings.auto_refine = True
+    fake.script("the prompt converter", ("Find 10 Indian NSE stocks near a breakout.", []))
+    fake.script("the Manager of MyOps", ("Here they are.", []))
+    assert await team.handle("c1", "show me breakout stocks india") == "Here they are."
+    manager_msg = [c for c in fake.calls if "the Manager of MyOps" in c[0]][-1][1][-1].text
+    assert manager_msg == "Find 10 Indian NSE stocks near a breakout."
+    assert (await team.store.recent_chat("c1", 2))[0] == ("user", "show me breakout stocks india")
+
+
+async def test_auto_refine_skips_short_replies(team, fake):
+    team.settings.auto_refine = True
+    fake.script("the Manager of MyOps", ("Done.", []))
+    assert await team.handle("c1", "yes go ahead") == "Done."
+    assert not [c for c in fake.calls if "prompt converter" in c[0]]
