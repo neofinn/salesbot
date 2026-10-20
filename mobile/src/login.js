@@ -57,7 +57,7 @@ $("forgotBtn").onclick = async () => {
 };
 $("googleBtn").onclick = async () => {
   say("accountMsg", "Opening Google…");
-  const { data, error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: isNative() ? AUTH_REDIRECT : location.href.split("#")[0], skipBrowserRedirect: true } });
+  const { data, error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: isNative() ? AUTH_REDIRECT : `${location.origin}${location.pathname}`, skipBrowserRedirect: true } });
   if (error) return say("accountMsg", error.message, "bad");
   if (isNative()) await Browser.open({ url: data.url }); else location.href = data.url;
 };
@@ -109,7 +109,7 @@ $("startBtn").onclick = () => {
 $("signOutBtn").onclick = async () => { await supabase.auth.signOut(); location.hash = ""; show(); };
 
 async function openRouterLogin() {
-  const start = await openRouterStart(isNative() ? OPENROUTER_REDIRECT : location.href.split("#")[0] + "#openrouter");
+  const start = await openRouterStart(isNative() ? OPENROUTER_REDIRECT : `${location.origin}${location.pathname}?or=1`);
   verifier = start.verifier; sessionStorage.setItem("myops.or", verifier);
   say("aiMsg", "Opening OpenRouter…");
   if (isNative()) await Browser.open({ url: start.url }); else location.href = start.url;
@@ -128,13 +128,18 @@ async function handleReturn(url) {
   const code = u.searchParams.get("code");
   if (!code) return;
   if (isNative()) Browser.close().catch(() => {});
-  if (u.pathname.includes("openrouter") || u.host === "openrouter" || u.hash === "#openrouter") return finishOpenRouter(code);
+  if (u.pathname.includes("openrouter") || u.host === "openrouter" || u.searchParams.get("or") === "1") return finishOpenRouter(code);
   const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) say("accountMsg", error.message, "bad");
   await show();
 }
 if (isNative()) App.addListener("appUrlOpen", ({ url }) => handleReturn(url));
-else if (new URLSearchParams(location.search).get("code")) handleReturn(location.href).then(() => history.replaceState(null, "", location.pathname + location.hash));
+else if (new URLSearchParams(location.search).get("code")) {
+  // Back from Google or OpenRouter in the browser: finish, then clean the address bar.
+  const back = location.href;
+  history.replaceState(null, "", location.pathname + location.hash);
+  handleReturn(back);
+}
 
 setMode("in");
 show();
