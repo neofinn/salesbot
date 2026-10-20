@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .base import Tool, ToolContext, ToolError
+from .codebook import CODE_REFERENCE
 from .crm import CRM_ADD_LEAD, CRM_EXPORT_CSV, CRM_FIND_LEADS, CRM_UPDATE_LEAD
 from .openclaw import OPENCLAW_BROWSE
 from .stocks import STOCK_ANALYZE, STOCK_FILTER, STOCK_SCREEN
@@ -18,6 +19,7 @@ CATALOG: dict[str, Tool] = {
         STOCK_ANALYZE,
         STOCK_SCREEN,
         STOCK_FILTER,
+        CODE_REFERENCE,
         SEND_EMAIL,
         SEND_SMS,
         CRM_ADD_LEAD,

@@ -10,7 +10,7 @@ import re
 import time
 from typing import Any
 
-from .. import connections, maintenance
+from .. import codebook, connections, maintenance
 from ..config import Settings
 from ..apps import AppSpec, slugify
 from ..apps import validate as validate_app
@@ -435,7 +435,14 @@ class Team:
         if spec is None:
             raise ToolError(f"No bot named {bot_name!r} on the team.")
         tools = [CATALOG[t] for t in spec.tools if t in CATALOG]
-        working = AgentSpec(spec.name, spec.role, spec.system_prompt + UNDERSTAND_FIRST, spec.model, spec.tools)
+        prompt = spec.system_prompt + UNDERSTAND_FIRST
+        if codebook.is_coding(f"{spec.role} {task}"):
+            # Coding work: the code book's method and the relevant language chapters, plus the lookup tool,
+            # so even small fast models write code that runs.
+            prompt += "\n\n" + codebook.for_task(task)
+            if all(t.name != "code_reference" for t in tools):
+                tools.append(CATALOG["code_reference"])
+        working = AgentSpec(spec.name, spec.role, prompt, spec.model, spec.tools)
         agent = Agent(working, tools, self.gateway, self.settings, self.store)
         task_id = await self.store.log_task(bot_name, task)
         try:
