@@ -2,7 +2,7 @@
 // sign-in or an API key). Both are required before the team opens.
 import { App } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
-import { AUTH_REDIRECT, OPENROUTER_REDIRECT } from "./config.js";
+import { AUTH_REDIRECT, OPENROUTER_REDIRECT, SUPABASE_KEY, SUPABASE_URL } from "./config.js";
 import { decodePairing, listModels, openRouterFinish, openRouterStart, PROVIDERS, provider } from "./providers.js";
 import { currentUser, isNative, loadAI, saveAI, supabase } from "./session.js";
 
@@ -55,7 +55,16 @@ $("forgotBtn").onclick = async () => {
   const { error } = await supabase.auth.resetPasswordForEmail(email);
   say("accountMsg", error ? error.message : "Password reset email sent.", error ? "bad" : "good");
 };
+// Ask the account service which sign-ins are switched on, so a disabled one explains itself instead of
+// sending the owner to a raw error page.
+async function googleEnabled() {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/settings`, { headers: { apikey: SUPABASE_KEY } });
+    return r.ok ? !!(await r.json()).external?.google : true;
+  } catch { return true; } // offline or blocked: let Google itself report the problem
+}
 $("googleBtn").onclick = async () => {
+  if (!(await googleEnabled())) return say("accountMsg", "Google sign-in isn't switched on for MyOps yet. Use email and password for now (Create account, then Sign in).", "bad");
   say("accountMsg", "Opening Google…");
   const { data, error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: isNative() ? AUTH_REDIRECT : `${location.origin}${location.pathname}`, skipBrowserRedirect: true } });
   if (error) return say("accountMsg", error.message, "bad");
