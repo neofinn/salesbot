@@ -8,6 +8,13 @@ const common = { bundle: true, format: "iife", target: "es2020", minify: true, l
 await build({ ...common, entryPoints: ["src/login.js"], outfile: "www/login.js" });
 await build({ ...common, entryPoints: ["src/native.js"], outfile: "www/native.js" });
 copyFileSync("www-src/index.html", "www/index.html");
+// Web version (the same app in any browser): an install manifest and icon.
+copyFileSync("assets/logo.png", "www/icon.png");
+writeFileSync("www/manifest.webmanifest", JSON.stringify({
+  name: "MyOps", short_name: "MyOps", start_url: "./index.html", scope: "./", display: "standalone",
+  background_color: "#f4f1ea", theme_color: "#18212b",
+  icons: [{ src: "icon.png", sizes: "1024x1024", type: "image/png", purpose: "any maskable" }],
+}, null, 2));
 
 let page = readFileSync("../artifact/salesbot.html", "utf8");
 // Wording that only fits claude.ai: on the phone the team runs on the owner's chosen AI.
@@ -25,6 +32,7 @@ writeFileSync("www/app.html", `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#18212b">
+<link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon.png"><link rel="apple-touch-icon" href="icon.png">
 <script src="native.js"></script>
 </head><body>
 ${page}
