@@ -33,6 +33,15 @@ Linked OpenClaw gives the Manager a `browse` action for web research (read-only:
 posts or messages). To run the whole team on OpenClaw instead, pick **OpenClaw (Clawdbot)** at sign-in
 step 2 and paste the same pairing code.
 
+## Cloud servers (24/7)
+**Account > Connect OpenClaw > Create a cloud server** creates a server on your own Hetzner or DigitalOcean
+account (your API token stays on the phone) and sets it up at first boot: Tailscale (private access only),
+OpenClaw with your Anthropic or Gemini key, and the MyOps server app running the team in the background.
+Progress shows in the app (reported to your account by the server with a one-time secret through the
+`server-report` function). When it is ready, **Link its OpenClaw** connects it, and the MyOps server app
+opens at `https://<server>.<tailnet>.ts.net:8443` from any device on your Tailscale network. **Delete
+server** removes it from your cloud account; it is billed monthly until then.
+
 ## Not on the phone (yet)
 Clay and Airtable connectors and the stock screener's market data come from claude.ai and the research
 engine; the phone app shows those tabs without them.

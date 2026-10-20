@@ -30,7 +30,7 @@ build-backend = "setuptools.build_meta"
 include = ["salesbot*"]
 
 [tool.setuptools.package-data]
-salesbot = ["web/*.html"]
+salesbot = ["web/*.html", "codebook/*.md"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

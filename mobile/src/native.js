@@ -6,6 +6,7 @@ import { Share } from "@capacitor/share";
 import { App } from "@capacitor/app";
 import { AIError, complete, decodePairing, provider } from "./providers.js";
 import { clearAI, currentUser, isNative, loadAI, supabase } from "./session.js";
+import { CLOUDS, SERVER_AI, createServer, destroyServer, listServers, local as cloudLocal, saveToken } from "./cloud.js";
 
 const ready = (async () => {
   const user = await currentUser(), ai = loadAI();
@@ -215,9 +216,9 @@ function openClawSheet() {
       <p class="step">2. Open a terminal on the computer and run:</p>
       <code class="cmd"></code><button data-a="copy">Copy command</button>
       <p class="step">3. Scan the QR code it shows with this phone's camera, or paste its pairing code below.</p></div>
-    <div class="opt"><b>On a cloud server</b><p>Online 24/7. Any Ubuntu server works, for example Hetzner, DigitalOcean, AWS Lightsail or Oracle Cloud's free tier.</p>
-      <p class="step">1. Create the server, log in with SSH, and set up Tailscale there: <code>curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up</code></p>
-      <p class="step">2. Run the same command on the server, then paste the pairing code below.</p></div>
+    <div class="opt"><b>On a cloud server</b><p>Online 24/7, with the MyOps server app working in the background even when your phone is off.</p>
+      <button data-a="cloud" class="primary">Create a cloud server</button>
+      <p class="step">The app creates it on your own DigitalOcean or Hetzner account and sets everything up. Or do it by hand on any Ubuntu server: set up Tailscale (<code>curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up</code>), run the command above, and paste the pairing code below.</p></div>
     <div class="opt"><b>Link existing OpenClaw</b><p>Already running OpenClaw or a hosted one such as Kimi Claw? Paste a pairing code, or its Gateway address and token.</p>
       <input class="code" placeholder="myops-oc:… pairing code" spellcheck="false" autocapitalize="off">
       <details><summary>Use address and token instead</summary><input class="url" placeholder="https://my-pc.tailnet.ts.net/v1" spellcheck="false" autocapitalize="off"><input class="tok" type="password" placeholder="Gateway token"></details>
@@ -232,6 +233,7 @@ function openClawSheet() {
     if (a === "close" || e.target === sheet) sheet.remove();
     if (a === "copy") { try { await navigator.clipboard.writeText(SETUP_CMD); e.target.textContent = "Copied"; } catch { e.target.textContent = "Select the command and copy it"; } }
     if (a === "unlink") { localStorage.removeItem(OC_KEY); location.reload(); }
+    if (a === "cloud") { sheet.remove(); cloudSheet(); }
     if (a === "link") {
       const code = sheet.querySelector(".code").value.trim();
       const link = code ? decodePairing(code) : { url: sheet.querySelector(".url").value.trim(), token: sheet.querySelector(".tok").value.trim() };
@@ -239,6 +241,118 @@ function openClawSheet() {
       e.target.disabled = true; e.target.textContent = "Testing…";
       try { await linkOpenClaw(link); location.reload(); }
       catch (err) { alert(`Couldn't reach OpenClaw at ${link.url}: ${err.message}\nIs the computer on, and is Tailscale connected on this phone?`); e.target.disabled = false; e.target.textContent = "Test and link"; }
+    }
+  });
+  document.body.append(sheet);
+}
+
+// ---------- Cloud servers: create, watch and delete them from the phone ----------
+function cloudSheet() {
+  const sheet = document.createElement("div");
+  sheet.className = "myops-sheet";
+  const ai = loadAI(), toks = cloudLocal().tokens || {};
+  const aiOpts = Object.entries(SERVER_AI).map(([k, v]) => `<option value="${k}" ${ai?.provider === k ? "selected" : ""}>${v.label}</option>`).join("");
+  sheet.innerHTML = `<div class="card">
+    <div class="hero"><b>Cloud servers</b><span>OpenClaw + MyOps, online 24/7</span></div>
+    <p class="lead">Creates a server on your own cloud account and installs OpenClaw and the MyOps server app, so research and the team keep running when your phone is off. It is reachable only through your private Tailscale network. The cloud bills you monthly until you delete it here.</p>
+    <div class="list"></div>
+    <h3>Create a server</h3>
+    <div class="opt">
+      <b>1. Cloud account</b>
+      <select class="cloud"><option value="hetzner">Hetzner (from about €4/month)</option><option value="digitalocean">DigitalOcean (from about $12/month)</option></select>
+      <input class="ctok" type="password" placeholder="API token (Read & Write)" spellcheck="false" autocapitalize="off">
+      <p class="tokhelp"></p>
+      <button data-a="load">Check token</button>
+      <select class="size" hidden></select><select class="region" hidden></select>
+    </div>
+    <div class="opt">
+      <b>2. Private network</b>
+      <p>A Tailscale auth key (tailscale.com > Settings > Keys > Generate auth key). Install the Tailscale app on this phone with the same account.</p>
+      <input class="tskey" type="password" placeholder="tskey-auth-…" spellcheck="false" autocapitalize="off">
+    </div>
+    <div class="opt">
+      <b>3. AI for the server</b>
+      <p>OpenClaw on the server is set up automatically with one of these. The key is stored on the server only.</p>
+      <select class="sai">${aiOpts}</select>
+      <input class="skey" type="password" placeholder="API key" spellcheck="false" autocapitalize="off">
+    </div>
+    <button data-a="create" class="primary" disabled>Create server</button>
+    <div class="row-btns"><button data-a="close">Close</button></div>
+  </div>`;
+  const $s = (c) => sheet.querySelector(c);
+  if (ai && SERVER_AI[ai.provider]) $s(".skey").value = ai.key;
+  const setCloud = () => {
+    const c = $s(".cloud").value;
+    $s(".ctok").value = toks[c] || "";
+    $s(".tokhelp").textContent = `Make one at ${CLOUDS[c].tokenUrl}. It stays on this phone.`;
+    $s(".size").hidden = $s(".region").hidden = true; $s('[data-a="create"]').disabled = true;
+  };
+  $s(".cloud").onchange = setCloud; setCloud();
+  let options = null;
+  const fillRegions = () => {
+    const size = options.sizes.find((x) => x.id === $s(".size").value);
+    const regs = options.regions.filter((r) => !size?.regions?.length || size.regions.includes(r.id));
+    $s(".region").replaceChildren(...regs.map((r) => Object.assign(document.createElement("option"), { value: r.id, textContent: r.label })));
+    const pref = regs.find((r) => /blr|sin|sgp|bangalore|singapore/i.test(r.id + r.label));
+    if (pref) $s(".region").value = pref.id;
+  };
+  $s(".size").onchange = fillRegions;
+  const render = async () => {
+    let rows = [];
+    try { rows = await listServers(); } catch (e) { $s(".list").textContent = `Couldn't load your servers: ${e.message}`; return; }
+    const secrets = cloudLocal().servers || {};
+    $s(".list").replaceChildren(...rows.map((r) => {
+      const box = document.createElement("div"); box.className = "opt";
+      const st = { creating: "Creating…", booting: "Starting up…", installing: `Installing: ${r.detail}`, ready: "Ready", failed: `Failed: ${r.detail}` }[r.status] || r.status;
+      box.innerHTML = `<b></b><p class="st"></p><p class="links"></p><div class="row-btns"></div>`;
+      box.querySelector("b").textContent = `${r.name} · ${CLOUDS[r.provider]?.label || r.provider} ${r.size} ${r.region}`;
+      box.querySelector(".st").textContent = st;
+      if (r.status === "ready") {
+        box.querySelector(".links").textContent = `MyOps server app: ${r.myops_url} (access token: ${secrets[r.id]?.webToken || "saved on the phone that created it"}) · OpenClaw: ${r.openclaw_url}`;
+        const link = loadOpenClaw();
+        if (secrets[r.id] && link?.url !== r.openclaw_url) {
+          const b = Object.assign(document.createElement("button"), { textContent: "Link its OpenClaw", className: "primary" });
+          b.onclick = async () => { b.disabled = true; b.textContent = "Testing…"; try { await linkOpenClaw({ url: r.openclaw_url, token: secrets[r.id].ocToken }); location.reload(); } catch (e) { alert(`Couldn't reach it: ${e.message}\nIs Tailscale connected on this phone?`); b.disabled = false; b.textContent = "Link its OpenClaw"; } };
+          box.querySelector(".row-btns").append(b);
+        }
+      }
+      const del = Object.assign(document.createElement("button"), { textContent: "Delete server" });
+      del.onclick = async () => {
+        if (!confirm(`Delete ${r.name}? This removes the server from your ${CLOUDS[r.provider]?.label} account and everything on it.`)) return;
+        del.disabled = true; del.textContent = "Deleting…";
+        try { await destroyServer(r); render(); } catch (e) { alert(e.message); del.disabled = false; del.textContent = "Delete server"; }
+      };
+      box.querySelector(".row-btns").append(del);
+      return box;
+    }));
+    if (rows.some((r) => !["ready", "failed"].includes(r.status))) setTimeout(() => sheet.isConnected && render(), 10000);
+  };
+  render();
+  sheet.addEventListener("click", async (e) => {
+    const a = e.target.dataset?.a;
+    if (a === "close") sheet.remove();
+    if (a === "load") {
+      const c = $s(".cloud").value, tok = $s(".ctok").value.trim();
+      if (!tok) return alert("Paste your API token first.");
+      e.target.disabled = true; e.target.textContent = "Checking…";
+      try {
+        options = await CLOUDS[c].options(tok);
+        saveToken(c, tok);
+        $s(".size").replaceChildren(...options.sizes.map((x) => Object.assign(document.createElement("option"), { value: x.id, textContent: x.label })));
+        fillRegions();
+        $s(".size").hidden = $s(".region").hidden = false; $s('[data-a="create"]').disabled = false;
+        e.target.textContent = "Token OK";
+      } catch (err) { alert(`${CLOUDS[c].label} didn't accept the token: ${err.message}`); e.target.textContent = "Check token"; }
+      finally { e.target.disabled = false; }
+    }
+    if (a === "create") {
+      const provider = $s(".cloud").value, token = $s(".ctok").value.trim(), tsKey = $s(".tskey").value.trim(), skey = $s(".skey").value.trim();
+      if (!tsKey.startsWith("tskey-")) return alert("Paste a Tailscale auth key (it starts with tskey-).");
+      if (!skey) return alert(`Paste a ${SERVER_AI[$s(".sai").value].label} API key for the server.`);
+      if (!confirm(`Create a server on your ${CLOUDS[provider].label} account? It costs ${$s(".size").selectedOptions[0]?.textContent.split("·")[1]?.trim() || "a monthly fee"} until you delete it.`)) return;
+      e.target.disabled = true; e.target.textContent = "Creating…";
+      try { await createServer({ provider, token, size: $s(".size").value, region: $s(".region").value, tsKey, ai: $s(".sai").value, aiKey: skey }); render(); e.target.textContent = "Created: setup takes about 5-10 minutes"; }
+      catch (err) { alert(`Couldn't create the server: ${err.message}`); e.target.disabled = false; e.target.textContent = "Create server"; }
     }
   });
   document.body.append(sheet);
@@ -285,7 +399,7 @@ function accountPanel({ user, ai }) {
   .myops-sheet .lead,.myops-sheet .opt p{color:#5b6470;margin:0}.myops-sheet h3{margin:6px 0 0;font-size:15px}.myops-sheet .state{font-size:13px;color:#15803d;overflow-wrap:anywhere}
   .myops-sheet .opt{border:1px solid #d9d3c7;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;background:#fff}.myops-sheet .opt b{font-size:15px}
   .myops-sheet .step{font-size:13px}.myops-sheet code{font:12px ui-monospace,monospace;background:#f1ece2;padding:8px;border-radius:8px;overflow-wrap:anywhere;display:block;color:#18212b}
-  .myops-sheet input{font:13px system-ui;padding:10px;border-radius:9px;border:1px solid #c9c2b4;width:100%;box-sizing:border-box;margin-top:6px}
+  .myops-sheet select{font:13px system-ui;padding:10px;border-radius:9px;border:1px solid #c9c2b4;width:100%;margin-top:6px;background:#fff}.myops-sheet select[hidden]{display:none}.myops-sheet .list{display:flex;flex-direction:column;gap:8px}.myops-sheet .links{font-size:12px;overflow-wrap:anywhere}.myops-sheet input{font:13px system-ui;padding:10px;border-radius:9px;border:1px solid #c9c2b4;width:100%;box-sizing:border-box;margin-top:6px}
   .myops-sheet .primary{background:#18212b;color:#fff;border-color:#18212b}.myops-sheet .row-btns{display:flex;gap:8px;justify-content:flex-end}.myops-sheet details summary{font-size:13px;color:#5b6470;cursor:pointer}`;
   document.head.append(style);
   // In the page header next to the profile picker when there is one, else floating.

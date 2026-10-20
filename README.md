@@ -274,6 +274,16 @@ pairs it with the phone. See [mobile/README.md](mobile/README.md).
   `?safe=1`, starts in safe mode. **Request a bigger change** sends the CTO's written-up request to the
   `dev_requests` collection for the MyOps dev bots, who ship it in the next app update.
 
+## Code book (coding with small models)
+
+`salesbot/codebook/` holds compact coding knowledge: a **method** chapter (plan, write in small functions,
+handle errors, a line-by-line self-check, strict output rules, debugging and security basics) and chapters
+for **Python, JavaScript, TypeScript, HTML/CSS, SQL and Bash** with rules, ready-to-use templates and common
+pitfalls. Whenever a bot's job or task is coding, the method plus the chapters its task mentions go into its
+prompt (within a size budget that suits small models), and server-app bots also get a `code_reference` tool
+to look chapters up. The Web Developer (Apps) and Developer mode always use the HTML/CSS and JavaScript
+chapters. `python tools/embed_codebook.py` copies the chapters into the MyOps page after edits.
+
 ## Prompt converter
 
 Rough messages become precise instructions: **Make precise** (web app and artifact) rewrites what you typed,
