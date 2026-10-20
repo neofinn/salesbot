@@ -390,7 +390,7 @@ function accountPanel({ user, ai }) {
   });
   btn.onclick = () => { panel.hidden = !panel.hidden; };
   const style = document.createElement("style");
-  style.textContent = `.myops-account-btn{position:fixed;right:10px;top:calc(10px + env(safe-area-inset-top));z-index:50;font:600 12px system-ui;padding:6px 10px;border-radius:999px;border:1px solid #c9c2b4;background:#fff;color:#18212b}
+  style.textContent = `.myops-account-btn{position:fixed;right:10px;top:calc(10px + env(safe-area-inset-top));z-index:50;font:600 13px system-ui;padding:6px 12px;border-radius:999px;border:1px solid var(--line,#ebedf0);background:var(--surface,#fff);color:var(--ink,#1d1e20)}
   .myops-account-btn.inline{position:static;margin-left:6px;flex:0 0 auto}.myops-account-panel[hidden]{display:none}.myops-account-panel{position:fixed;right:10px;top:calc(46px + env(safe-area-inset-top));z-index:50;width:260px;background:#fff;color:#18212b;border:1px solid #c9c2b4;border-radius:12px;padding:12px;font:13px system-ui;box-shadow:0 8px 30px #0003;display:flex;flex-direction:column;gap:6px}
   .myops-account-panel .row{color:#5b6470;overflow-wrap:anywhere}.myops-account-panel button,.myops-sheet button{font:600 13px system-ui;padding:9px;border-radius:9px;border:1px solid #c9c2b4;background:#f4f1ea;color:#18212b}
   .myops-sheet{position:fixed;inset:0;z-index:60;background:#0006;overflow:auto;padding:calc(16px + env(safe-area-inset-top)) 12px calc(16px + env(safe-area-inset-bottom))}
@@ -402,9 +402,9 @@ function accountPanel({ user, ai }) {
   .myops-sheet select{font:13px system-ui;padding:10px;border-radius:9px;border:1px solid #c9c2b4;width:100%;margin-top:6px;background:#fff}.myops-sheet select[hidden]{display:none}.myops-sheet .list{display:flex;flex-direction:column;gap:8px}.myops-sheet .links{font-size:12px;overflow-wrap:anywhere}.myops-sheet input{font:13px system-ui;padding:10px;border-radius:9px;border:1px solid #c9c2b4;width:100%;box-sizing:border-box;margin-top:6px}
   .myops-sheet .primary{background:#18212b;color:#fff;border-color:#18212b}.myops-sheet .row-btns{display:flex;gap:8px;justify-content:flex-end}.myops-sheet details summary{font-size:13px;color:#5b6470;cursor:pointer}`;
   document.head.append(style);
-  // In the page header next to the profile picker when there is one, else floating.
-  const sel = document.getElementById("spaceSel");
-  if (sel) { btn.classList.add("inline"); sel.after(btn); } else document.body.append(btn);
+  // In the page header (top right) when there is one, else floating.
+  const top = document.querySelector("header.top");
+  if (top) { btn.classList.add("inline"); top.append(btn); } else document.body.append(btn);
   document.body.append(panel);
 }
 ready.then((s) => (document.readyState === "loading" ? document.addEventListener("DOMContentLoaded", () => accountPanel(s)) : accountPanel(s)));

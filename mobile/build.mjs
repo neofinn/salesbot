@@ -12,7 +12,7 @@ copyFileSync("www-src/index.html", "www/index.html");
 copyFileSync("assets/logo.png", "www/icon.png");
 writeFileSync("www/manifest.webmanifest", JSON.stringify({
   name: "MyOps", short_name: "MyOps", start_url: "./index.html", scope: "./", display: "standalone",
-  background_color: "#f4f1ea", theme_color: "#18212b",
+  background_color: "#ffffff", theme_color: "#ffffff",
   icons: [{ src: "icon.png", sizes: "1024x1024", type: "image/png", purpose: "any maskable" }],
 }, null, 2));
 
@@ -31,7 +31,7 @@ for (const [a, b] of swaps) {
 writeFileSync("www/app.html", `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#18212b">
+<meta name="theme-color" content="#ffffff">
 <link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon.png"><link rel="apple-touch-icon" href="icon.png">
 <script src="native.js"></script>
 </head><body>
