@@ -5,6 +5,6 @@
   "plugins": {
     "CapacitorHttp": { "enabled": true }
   },
-  "android": { "backgroundColor": "#f4f1ea" },
-  "ios": { "backgroundColor": "#f4f1ea", "contentInset": "always" }
+  "android": { "backgroundColor": "#ffffff" },
+  "ios": { "backgroundColor": "#ffffff", "contentInset": "always" }
 }

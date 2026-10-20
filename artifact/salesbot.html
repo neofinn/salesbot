@@ -1,107 +1,130 @@
 <title>MyOps</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
-/* Layout: an office floor — roster of staff badges on the left, the Manager's desk (chat) in the middle,
-   the out-tray (drafts awaiting sign-off), the task board and the contact book on the right. Phones get a tab bar. */
+/* Layout (Kimi-style): a quiet sidebar for navigation, one centered conversation column with a large rounded
+   composer, answers as plain text and only your messages in bubbles. Other sections open in the same column.
+   Phones get the sidebar as a slide-in drawer. */
 :root {
-  --bg: #eef0ec;
-  --surface: #fbfbf8;
-  --ink: #18212b;
-  --muted: #5d6874;
-  --line: #d9ddd6;
-  --accent: #d2551f;        /* signal orange: the "needs your sign-off" colour */
+  --bg: #ffffff;
+  --side: #f7f8fa;
+  --surface: #ffffff;
+  --ink: #1d1e20;
+  --muted: #7c818b;
+  --line: #ebedf0;
+  --accent: #1783ff;        /* links, focus, selection */
   --accent-ink: #ffffff;
-  --accent-soft: #fbe6da;
-  --staff: #233a57;         /* navy for core staff badges */
-  --staff-soft: #e2e8f0;
-  --good: #1f7a46;
-  --good-soft: #def0e4;
-  --bad: #b3261e;
-  --bad-soft: #f8e1df;
-  --me: #233a57;
-  --me-ink: #ffffff;
-  --bubble: #f0f2ee;
-  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
-  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --accent-soft: #e8f2ff;
+  --staff: #1d1e20;
+  --staff-soft: #eef0f3;
+  --good: #16a34a;
+  --good-soft: #e7f6ec;
+  --bad: #dc2626;
+  --bad-soft: #fdecec;
+  --me: #f2f3f5;            /* your bubble */
+  --me-ink: #1d1e20;
+  --bubble: #f2f3f5;
+  --hover: #eef0f3;
+  --shadow: 0 6px 24px rgba(20, 24, 31, 0.07), 0 1px 3px rgba(20, 24, 31, 0.06);
+  --display: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+  --body: var(--display);
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #12161a; --surface: #1a1f25; --ink: #e7eaee; --muted: #9aa4ae; --line: #2b323a;
-    --accent: #f07a45; --accent-ink: #160b05; --accent-soft: #3a2218;
-    --staff: #9fb6d6; --staff-soft: #1f2a38; --good: #74cf96; --good-soft: #17301f;
-    --bad: #f28b82; --bad-soft: #3a1e1c; --me: #31527d; --me-ink: #ffffff; --bubble: #232930;
+    --bg: #141416; --side: #1b1b1e; --surface: #1f1f23; --ink: #ececf1; --muted: #9a9ca5; --line: #2c2d32;
+    --accent: #4b9dff; --accent-ink: #0b1220; --accent-soft: #16263b;
+    --staff: #ececf1; --staff-soft: #2a2b30; --good: #4ade80; --good-soft: #15291c;
+    --bad: #f87171; --bad-soft: #3a1d1d; --me: #2a2b30; --me-ink: #ececf1; --bubble: #2a2b30; --hover: #26272c;
+    --shadow: 0 6px 24px rgba(0, 0, 0, 0.35), 0 1px 3px rgba(0, 0, 0, 0.3);
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #12161a; --surface: #1a1f25; --ink: #e7eaee; --muted: #9aa4ae; --line: #2b323a;
-  --accent: #f07a45; --accent-ink: #160b05; --accent-soft: #3a2218;
-  --staff: #9fb6d6; --staff-soft: #1f2a38; --good: #74cf96; --good-soft: #17301f;
-  --bad: #f28b82; --bad-soft: #3a1e1c; --me: #31527d; --me-ink: #ffffff; --bubble: #232930;
+  --bg: #141416; --side: #1b1b1e; --surface: #1f1f23; --ink: #ececf1; --muted: #9a9ca5; --line: #2c2d32;
+  --accent: #4b9dff; --accent-ink: #0b1220; --accent-soft: #16263b;
+  --staff: #ececf1; --staff-soft: #2a2b30; --good: #4ade80; --good-soft: #15291c;
+  --bad: #f87171; --bad-soft: #3a1d1d; --me: #2a2b30; --me-ink: #ececf1; --bubble: #2a2b30; --hover: #26272c;
+  --shadow: 0 6px 24px rgba(0, 0, 0, 0.35), 0 1px 3px rgba(0, 0, 0, 0.3);
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { height: 100%; }
-body {
-  margin: 0; background: var(--bg); color: var(--ink);
-  font: 15px/1.5 var(--body);
-  padding-left: max(16px, env(safe-area-inset-left, 0px));
-  padding-right: max(16px, env(safe-area-inset-right, 0px));
-  display: flex; flex-direction: column;
-}
-h1, h2, h3 { font-family: var(--display); margin: 0; line-height: 1.2; text-wrap: balance; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 var(--body); -webkit-font-smoothing: antialiased; }
+h1, h2, h3 { font-family: var(--display); margin: 0; line-height: 1.25; text-wrap: balance; font-weight: 650; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+svg.i { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
-header.top {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  padding-block: 14px 10px;
+/* Shell: sidebar + stage */
+.app { display: flex; height: 100%; }
+.side {
+  width: 248px; flex: none; background: var(--side); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 6px; padding: 14px 10px max(12px, env(safe-area-inset-bottom, 0px));
+  padding-left: max(10px, env(safe-area-inset-left, 0px));
 }
-header.top h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.01em; }
-header.top h1 span { color: var(--accent); }
-.tagline { color: var(--muted); font-size: 13px; flex: 1; min-width: 200px; }
-.space-sel { width: auto; max-width: 220px; padding: 5px 8px; font-size: 14px; font-weight: 600; border-radius: 8px; }
-.status { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.brand { display: flex; align-items: center; gap: 9px; padding: 2px 8px 10px; }
+.brand .logo { width: 30px; height: 30px; border-radius: 9px; background: var(--ink); color: var(--bg); display: grid; place-items: center; font-weight: 700; font-size: 15px; }
+.brand b { font-size: 18px; letter-spacing: -0.01em; flex: 1; }
+.new-chat {
+  display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--surface); border-radius: 12px;
+  padding: 9px 12px; font-weight: 600; font-size: 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+.new-chat:hover { background: var(--hover); }
+.nav { display: flex; flex-direction: column; gap: 1px; margin-top: 8px; overflow-y: auto; min-height: 0; flex: 1; }
+.nav .group { font-size: 12px; color: var(--muted); padding: 12px 10px 4px; }
+.nav button {
+  display: flex; align-items: center; gap: 10px; border: 0; background: none; border-radius: 10px; padding: 8px 10px;
+  font-size: 14px; color: var(--ink); text-align: left; width: 100%;
+}
+.nav button:hover { background: var(--hover); }
+.nav button[aria-selected="true"] { background: var(--hover); font-weight: 600; }
+.nav button svg.i { color: var(--muted); }
+.nav button[aria-selected="true"] svg.i { color: var(--ink); }
+.nav button .count { margin-left: auto; }
+.side-foot { border-top: 1px solid var(--line); padding: 10px 4px 0; display: flex; flex-direction: column; gap: 6px; }
+.side-foot .row { display: flex; gap: 6px; align-items: center; }
+.space-sel { width: 100%; padding: 7px 10px; font-size: 14px; font-weight: 600; border-radius: 10px; background: var(--surface); }
+.status { font-family: var(--mono); font-size: 11.5px; color: var(--muted); padding: 0 6px; }
 .status.bad { color: var(--bad); }
+.scrim { display: none; }
 
-.tabs { display: none; gap: 4px; padding-bottom: 10px; }
-.tabs button {
-  flex: 1; border: 1px solid var(--line); background: var(--surface); border-radius: 8px;
-  padding: 7px 4px; font-size: 13px; font-weight: 600; color: var(--muted);
+.stage { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%; }
+header.top {
+  display: flex; align-items: center; gap: 10px; padding: 10px 20px; min-height: 52px;
+  padding-right: max(20px, env(safe-area-inset-right, 0px));
 }
-.tabs button[aria-selected="true"] { color: var(--ink); border-color: var(--ink); }
+header.top h1 { font-size: 16px; font-weight: 600; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tagline { display: none; }
+.icon-btn { border: 0; background: none; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; color: var(--ink); position: relative; flex: none; }
+.icon-btn:hover { background: var(--hover); }
+.icon-btn .count { position: absolute; top: 2px; right: 0; margin: 0; }
+#menuBtn { display: none; }
 
-main {
-  flex: 1; min-height: 0; display: grid; gap: 14px;
-  grid-template-columns: 270px minmax(0, 1fr) 340px;
-  padding-bottom: 16px;
-}
-.pane {
-  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
-  display: flex; flex-direction: column; min-height: 0; min-width: 0;
-}
+main { flex: 1; min-height: 0; display: flex; }
+.pane { flex: 1; min-width: 0; min-height: 0; display: none; flex-direction: column; }
+.pane.show { display: flex; }
 .pane > .head {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
-  padding: 12px 14px 8px; border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%; max-width: 860px; margin: 0 auto; padding: 4px 20px 10px;
 }
-.pane > .head h2 { font-size: 16px; font-weight: 700; }
-.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
-.scroll { overflow-y: auto; min-height: 0; flex: 1; padding: 12px 14px; }
+.pane > .head h2 { font-size: 22px; }
+.eyebrow { font-size: 12px; color: var(--muted); font-weight: 500; }
+.scroll { overflow-y: auto; min-height: 0; flex: 1; }
+.col { width: 100%; max-width: 860px; margin: 0 auto; padding: 4px 20px 24px; }
+.subtabs { display: none; }
+#pane-right > .scroll { padding: 4px max(20px, calc((100% - 820px) / 2)) 24px; }
 
 /* Staff badges */
-.badges { display: flex; flex-direction: column; gap: 10px; }
+.badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
 .badge {
-  border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--surface);
-  display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 2px 10px; align-items: start;
+  border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; background: var(--surface);
+  display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 2px 12px; align-items: start;
 }
 .badge .mark {
-  grid-row: span 3; width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center;
-  font-family: var(--display); font-weight: 700; font-size: 15px;
-  background: var(--accent-soft); color: var(--accent);
+  grid-row: span 3; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
+  font-weight: 700; font-size: 14px; background: var(--accent-soft); color: var(--accent);
 }
 .screen-conds { display: flex; flex-direction: column; gap: 4px; }
 .screen-cond { display: flex; gap: 6px; align-items: center; font-size: 13px; }
@@ -110,118 +133,159 @@ main {
 .screen-cond input { width: 64px; }
 .screen-cond select.add { flex: 1; }
 .screen-table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
-.screen-table th { text-align: left; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); padding: 4px 2px; }
-.screen-table td { border-bottom: 1px solid var(--line); padding: 4px 2px; }
-.screen-table .up { color: #15803d; } .screen-table .down { color: #b91c1c; }
-.mode-switch { display: flex; gap: 2px; background: var(--line); border-radius: 999px; padding: 2px; }
-.mode-switch button { border: 0; background: transparent; font: 600 13px var(--sans, system-ui); padding: 5px 12px; border-radius: 999px; color: var(--muted); cursor: pointer; }
-.mode-switch button[aria-selected="true"] { background: var(--card, #fff); color: var(--ink, #18212b); }
-.quick { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 12px 0; }
-.quick button { font-size: 12px; }
+.screen-table th { text-align: left; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); padding: 6px 4px; }
+.screen-table td { border-bottom: 1px solid var(--line); padding: 6px 4px; }
+.screen-table tr:hover td { background: var(--hover); }
+.screen-table .up { color: var(--good); } .screen-table .down { color: var(--bad); }
+.mode-switch { display: inline-flex; gap: 2px; background: var(--bubble); border-radius: 999px; padding: 3px; }
+.mode-switch button { border: 0; background: transparent; font-weight: 600; font-size: 13px; padding: 4px 12px; border-radius: 999px; color: var(--muted); white-space: nowrap; }
+.mode-switch button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+.quick { display: flex; gap: 6px; flex-wrap: wrap; width: 100%; max-width: 820px; margin: 0 auto; padding: 0 20px 8px; }
+.quick button { font-size: 13px; }
 .dev-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
-.dev-preview { border: 1px dashed var(--accent, #d2551f); border-radius: 10px; padding: 8px; margin-top: 8px; font-size: 13px; }
-.team-group { display: flex; flex-direction: column; gap: 8px; }
-.team-name { font-size: 12px; font-weight: 600; color: var(--muted); margin-top: 4px; }
+.dev-preview { border: 1px dashed var(--accent); border-radius: 12px; padding: 10px; margin-top: 8px; font-size: 13px; }
+.team-group { display: flex; flex-direction: column; gap: 10px; }
+.team-name { font-size: 13px; font-weight: 600; color: var(--muted); margin-top: 6px; }
 .badge.staff .mark { background: var(--staff-soft); color: var(--staff); }
 .badge .name { font-weight: 600; display: flex; justify-content: space-between; gap: 6px; align-items: baseline; }
 .badge .name code { font-family: var(--mono); font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
-.badge .role { color: var(--muted); font-size: 13px; }
+.badge .role { color: var(--muted); font-size: 13px; line-height: 1.45; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-.chip { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border-radius: 5px; background: var(--bubble); color: var(--muted); }
-.section-label { margin: 16px 0 8px; }
+.chip { font-family: var(--mono); font-size: 11px; padding: 1px 7px; border-radius: 6px; background: var(--bubble); color: var(--muted); }
+.section-label { margin: 22px 0 10px; font-size: 13px; font-weight: 600; color: var(--muted); }
 .fire { border: 0; background: none; color: var(--muted); font-size: 12px; padding: 0 2px; }
 .fire:hover, .fire.armed { color: var(--bad); }
-.hire-form { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
-.conn-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
-.hire-form textarea { min-height: 64px; }
+.hire-form { display: flex; flex-direction: column; gap: 8px; margin-top: 22px; max-width: 560px; }
+.conn-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; }
+.hire-form textarea { min-height: 70px; }
 
 /* Chat */
-.log { display: flex; flex-direction: column; gap: 12px; }
-.msg { max-width: 86%; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.msg .who { font-size: 12px; color: var(--muted); font-weight: 600; }
-.msg .text { padding: 9px 13px; border-radius: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.msg.user { align-self: flex-end; align-items: flex-end; }
-.msg.user .text { background: var(--me); color: var(--me-ink); border-bottom-right-radius: 4px; }
-.msg.manager .text { background: var(--bubble); border-bottom-left-radius: 4px; }
-.msg.working .text { color: var(--muted); font-style: italic; }
-.steps { list-style: none; margin: 2px 0 0; padding: 0 0 0 4px; display: flex; flex-direction: column; gap: 2px; }
-.steps li { font-size: 12.5px; color: var(--muted); padding-left: 14px; position: relative; }
+#pane-chat { position: relative; }
+#chatScroll { display: flex; flex-direction: column; }
+.log { display: flex; flex-direction: column; gap: 22px; width: 100%; max-width: 820px; margin: 0 auto; padding: 12px 20px 28px; }
+.msg { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.msg .who { display: none; }
+.msg .text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
+.msg.user { align-self: flex-end; align-items: flex-end; max-width: 80%; }
+.msg.user .text { background: var(--me); color: var(--me-ink); padding: 9px 16px; border-radius: 20px; }
+.msg.manager { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 6px 12px; align-items: start; }
+.msg.manager > * { grid-column: 2; }
+.msg.manager::before {
+  content: attr(data-mark); grid-column: 1; grid-row: 1 / span 4; width: 30px; height: 30px; border-radius: 50%;
+  background: var(--ink); color: var(--bg); display: grid; place-items: center; font-weight: 700; font-size: 13px;
+}
+.msg.working .text { color: var(--muted); }
+.msg.working .text::after { content: ""; display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--accent); animation: pulse 0.9s infinite alternate; vertical-align: middle; }
+.steps { list-style: none; margin: 0; padding: 8px 12px; display: flex; flex-direction: column; gap: 3px; border-left: 2px solid var(--line); }
+.steps li { font-size: 13px; color: var(--muted); padding-left: 16px; position: relative; }
 .steps li::before { content: ""; position: absolute; left: 2px; top: 8px; width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
 .steps li.done::before { background: var(--good); }
 .steps li.fail::before { background: var(--bad); }
 .steps li.live::before { background: var(--accent); animation: pulse 1s infinite alternate; }
 @keyframes pulse { to { opacity: 0.3; } }
-@media (prefers-reduced-motion: reduce) { .steps li.live::before { animation: none; } }
-details.steps-wrap summary { font-size: 12px; color: var(--muted); cursor: pointer; }
-
-.empty { margin: auto; max-width: 460px; text-align: center; color: var(--muted); padding: 24px 8px; }
-.empty h3 { color: var(--ink); font-size: 20px; margin-bottom: 6px; }
-.suggest { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
-.suggest button {
-  text-align: left; border: 1px solid var(--line); background: var(--surface); border-radius: 10px;
-  padding: 9px 12px; font-size: 14px;
+@media (prefers-reduced-motion: reduce) { .steps li.live::before, .msg.working .text::after { animation: none; } }
+details.steps-wrap summary {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer;
+  background: var(--bubble); border-radius: 999px; padding: 3px 12px; list-style: none;
 }
-.suggest button:hover { border-color: var(--ink); }
-.setup { margin: auto; width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 10px; padding: 16px 4px; }
-.setup h3 { font-size: 22px; }
+details.steps-wrap summary::-webkit-details-marker { display: none; }
+details.steps-wrap summary::after { content: "▾"; font-size: 11px; }
+details.steps-wrap[open] summary::after { content: "▴"; }
+details.steps-wrap[open] .steps { margin-top: 8px; }
+
+.empty { margin: auto 0 0; text-align: center; color: var(--muted); padding: 24px 0 4px; }
+.empty h3 { color: var(--ink); font-size: 28px; font-weight: 650; letter-spacing: -0.02em; margin-bottom: 8px; }
+.empty p { max-width: 560px; margin: 0 auto; font-size: 14px; }
+.suggest { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; margin-top: 22px; text-align: left; }
+.suggest button {
+  border: 1px solid var(--line); background: var(--surface); border-radius: 14px; padding: 12px 14px; font-size: 14px; line-height: 1.45;
+  color: var(--ink); text-align: left;
+}
+.suggest button:hover { background: var(--hover); }
+.setup { margin: auto; width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 12px; padding: 16px 0; }
+.setup h3 { font-size: 26px; }
 .setup p { color: var(--muted); font-size: 14px; margin: 0; }
-.setup label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; }
+.setup label { display: flex; flex-direction: column; gap: 5px; font-size: 13px; font-weight: 600; }
 .setup label.check { flex-direction: row; align-items: center; gap: 8px; font-weight: 500; }
 .setup label.check input { width: auto; }
 .setup textarea { min-height: 70px; resize: vertical; }
 .setup input, .setup textarea { font-weight: 400; }
 .setup .row { display: flex; gap: 8px; flex-wrap: wrap; }
-.op { font-size: 13px; display: flex; flex-direction: column; gap: 6px; }
+.op { font-size: 14px; display: flex; flex-direction: column; gap: 6px; }
 .op .row { display: flex; gap: 6px; flex-wrap: wrap; }
 
-.compose { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); align-items: flex-end; }
-textarea, input, select {
-  width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px;
+/* The composer: one big rounded card, controls in a row underneath the text. */
+.compose-wrap { width: 100%; max-width: 820px; margin: 0 auto; padding: 0 20px max(14px, env(safe-area-inset-bottom, 0px)); }
+.compose {
+  display: flex; flex-direction: column; gap: 6px; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 24px; padding: 12px 12px 10px 16px; box-shadow: var(--shadow);
 }
-.refine-box { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.refine-box .auto { font-size: 11px; color: var(--muted); display: flex; gap: 4px; align-items: center; cursor: pointer; }
+.compose:focus-within { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.compose textarea { resize: none; min-height: 48px; max-height: 200px; border: 0; background: transparent; padding: 4px 0; font-size: 15.5px; line-height: 1.55; }
+.compose textarea:focus { outline: none; }
+.compose-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.compose-bar .grow { flex: 1; }
+.refine-box { display: inline-flex; align-items: center; gap: 4px; }
+.pill-btn {
+  border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 12px; font-size: 13px; font-weight: 500;
+  display: inline-flex; align-items: center; gap: 5px; color: var(--ink); white-space: nowrap;
+}
+.pill-btn:hover:not(:disabled) { background: var(--hover); }
+.pill-btn:disabled { opacity: 0.5; cursor: default; }
+.refine-box .auto { font-size: 12.5px; color: var(--muted); display: inline-flex; gap: 4px; align-items: center; cursor: pointer; padding: 0 4px; }
 .refine-box .auto input { width: auto; margin: 0; }
-@media (max-width: 520px) { .refine-box .btn { padding: 8px 9px; font-size: 12px; } .compose { gap: 6px; } }
-.msg .refined { font-size: 12px; opacity: 0.85; margin-top: 4px; border-top: 1px solid currentColor; padding-top: 4px; white-space: pre-wrap; }
-.compose textarea { resize: none; min-height: 44px; max-height: 160px; }
+.send {
+  width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--ink); color: var(--bg); display: grid; place-items: center; flex: none;
+}
+.send:disabled { opacity: 0.3; cursor: default; }
+.send.stop svg { fill: currentColor; stroke: none; }
+.compose-note { text-align: center; font-size: 12px; color: var(--muted); padding-top: 8px; }
+#pane-chat.fresh #chatScroll { flex: 0 1 auto; margin-top: auto; }
+#pane-chat.fresh .compose-wrap { margin-bottom: auto; padding-bottom: 6vh; }
+#pane-chat.fresh .log { padding-bottom: 18px; }
+.suggest-host:empty { display: none; }
+#pane-chat:not(.fresh) .suggest-host { display: none; }
+.msg .refined { font-size: 12.5px; opacity: 0.8; margin-top: 6px; border-top: 1px solid var(--line); padding-top: 6px; white-space: pre-wrap; }
+
+textarea, input, select {
+  width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px;
+}
 .btn {
-  border: 1px solid var(--ink); background: var(--ink); color: var(--surface); border-radius: 10px;
-  padding: 9px 16px; font-weight: 600; white-space: nowrap;
+  border: 1px solid var(--ink); background: var(--ink); color: var(--bg); border-radius: 999px;
+  padding: 8px 18px; font-weight: 600; white-space: nowrap;
 }
 .btn.accent { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-.btn.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
-.btn.small { padding: 4px 10px; font-size: 13px; border-radius: 8px; }
+.btn.ghost { background: var(--surface); color: var(--ink); border-color: var(--line); }
+.btn.ghost:hover:not(:disabled) { background: var(--hover); }
+.btn.small { padding: 4px 12px; font-size: 13px; }
 .btn:disabled { opacity: 0.5; cursor: default; }
-.notice { font-size: 13px; color: var(--muted); padding: 8px 12px; border-top: 1px solid var(--line); }
+.notice { font-size: 13px; color: var(--muted); width: 100%; max-width: 820px; margin: 0 auto; padding: 0 24px 8px; }
 .notice.bad { color: var(--bad); }
 
-/* Right column */
-.subtabs { display: flex; gap: 2px; flex-wrap: wrap; }
-.subtabs button { border: 0; background: none; padding: 2px 6px; border-radius: 6px; font-family: var(--display); font-weight: 700; font-size: 14px; color: var(--muted); white-space: nowrap; }
-.subtabs button[aria-selected="true"] { color: var(--ink); background: var(--bubble); }
-.count { font-family: var(--mono); font-size: 11px; background: var(--accent); color: var(--accent-ink); border-radius: 99px; padding: 0 6px; margin-left: 4px; vertical-align: 2px; }
+/* Sections */
+.count { font-size: 11px; font-weight: 600; background: var(--accent); color: var(--accent-ink); border-radius: 99px; padding: 0 7px; margin-left: 4px; line-height: 18px; }
 .count[hidden] { display: none; }
-.draft { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 6px; }
+.draft { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 6px; background: var(--surface); }
 .draft.pending { border-left: 3px solid var(--accent); }
 .draft .meta { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); }
 .draft .to { font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
 .draft .subject { font-weight: 600; }
 .draft .body { white-space: pre-wrap; font-size: 14px; overflow-wrap: anywhere; }
 .draft .row { display: flex; gap: 6px; flex-wrap: wrap; }
-.pill { font-family: var(--mono); font-size: 11px; padding: 1px 7px; border-radius: 99px; background: var(--bubble); color: var(--muted); }
+.pill { font-size: 11.5px; font-weight: 500; padding: 1px 8px; border-radius: 99px; background: var(--bubble); color: var(--muted); }
 .pill.pending { background: var(--accent-soft); color: var(--accent); }
 .pill.approved, .pill.sent { background: var(--good-soft); color: var(--good); }
 .pill.rejected { background: var(--bad-soft); color: var(--bad); }
-.filter { display: flex; gap: 6px; margin-bottom: 10px; }
-.lead { border-bottom: 1px solid var(--line); padding: 8px 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; }
+.filter { display: flex; gap: 6px; margin-bottom: 12px; }
+.lead { border-bottom: 1px solid var(--line); padding: 10px 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; }
 .lead .n { font-weight: 600; overflow-wrap: anywhere; }
 .lead .c { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
 .lead .contact { grid-column: 1 / -1; font-family: var(--mono); font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
-.lead select { width: auto; padding: 2px 6px; font-size: 12px; border-radius: 6px; }
+.lead select { width: auto; padding: 2px 6px; font-size: 12px; border-radius: 8px; }
 .lead .notes { grid-column: 1 / -1; font-size: 13px; }
 .lead .id { font-family: var(--mono); font-size: 11px; color: var(--muted); }
 .muted { color: var(--muted); }
-.task { border-bottom: 1px solid var(--line); padding: 8px 0; display: flex; flex-direction: column; gap: 4px; }
+.task { border-bottom: 1px solid var(--line); padding: 10px 0; display: flex; flex-direction: column; gap: 4px; }
 .task .meta { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); }
 .task .brief { font-size: 14px; overflow-wrap: anywhere; }
 .task details { font-size: 13px; color: var(--muted); }
@@ -230,83 +294,122 @@ textarea, input, select {
 .pill.done { background: var(--good-soft); color: var(--good); }
 .pill.failed { background: var(--bad-soft); color: var(--bad); }
 
-@media (max-width: 1100px) { main { grid-template-columns: 240px minmax(0, 1fr) 300px; } }
+/* Phones and narrow windows: the sidebar slides in over the page. */
 @media (max-width: 860px) {
-  .tabs { display: flex; }
-  main { grid-template-columns: minmax(0, 1fr); }
-  main > .pane { display: none; }
-  main > .pane.show { display: flex; }
-  .msg { max-width: 94%; }
+  #menuBtn { display: grid; }
+  header.top { padding: 6px 10px; padding-left: max(10px, env(safe-area-inset-left, 0px)); }
+  .side {
+    position: fixed; inset: 0 auto 0 0; z-index: 30; width: min(84vw, 300px); transform: translateX(-102%);
+    transition: transform 0.22s ease; box-shadow: var(--shadow);
+  }
+  .app.drawer .side { transform: none; }
+  .app.drawer .scrim { display: block; position: fixed; inset: 0; z-index: 20; background: rgba(0, 0, 0, 0.32); }
+  .col, .pane > .head, .log, .compose-wrap, .quick { padding-left: 14px; padding-right: 14px; }
+  .msg.user { max-width: 88%; }
+  .msg.manager { grid-template-columns: minmax(0, 1fr); }
+  .msg.manager::before { display: none; }
+  .msg.manager > * { grid-column: 1; }
+  .empty h3 { font-size: 24px; }
+  .suggest { grid-template-columns: minmax(0, 1fr); }
+  .suggest button:nth-child(n+4) { display: none; }
+  #pane-right > .scroll { padding-left: 14px; padding-right: 14px; }
 }
-@media (max-width: 600px) { .tagline { display: none; } header.top { justify-content: space-between; } }
+@media (max-width: 860px) { .pane > .head h2 { display: none; } .pane > .head { justify-content: flex-end; padding-top: 0; } }
+@media (min-width: 861px) { .app:not([data-view="chat"]) #viewTitle { visibility: hidden; } }
+@media (max-width: 520px) {
+  .compose-bar { flex-wrap: nowrap; gap: 4px; }
+  .mode-switch button { padding: 4px 9px; }
+  .pill-btn { padding: 4px 9px; }
+  .refine-box .auto { padding: 0 2px; }
+  header.top #checkBtn { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .side { transition: none; } }
 </style>
 
-<header class="top">
-  <h1>My<span>Ops</span></h1>
-  <select id="spaceSel" class="space-sel" aria-label="Profile"></select>
-  <div class="tagline" id="tagline">Your personal AI team. Tell the Manager what you need; it hires bots through the Recruiter and HR, delegates the work, and queues every message for your sign-off.</div>
-  <div class="status" id="status">Starting…</div>
-</header>
+<div class="app" id="app" data-view="chat">
+<aside class="side" id="side" aria-label="MyOps">
+  <div class="brand"><span class="logo" aria-hidden="true">M</span><b>MyOps</b>
+    <button class="icon-btn" id="themeBtn" type="button" title="Light or dark" aria-label="Switch light or dark"><svg class="i" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
+  </div>
+  <button class="new-chat" id="newChatBtn" type="button"><svg class="i" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>Ask the team</button>
+  <nav class="nav" role="tablist" aria-label="Sections">
+    <button role="tab" data-view="chat" aria-selected="true"><svg class="i" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Chat</button>
+    <button role="tab" data-view="team" aria-selected="false"><svg class="i" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7"/><path d="M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/></svg>Team</button>
+    <div class="group">Work</div>
+    <button role="tab" data-view="outbox" aria-selected="false"><svg class="i" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/></svg>Out-tray<span class="count" id="outCount" hidden></span></button>
+    <button role="tab" data-view="tasks" aria-selected="false"><svg class="i" viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg>Tasks</button>
+    <button role="tab" data-view="leads" aria-selected="false"><svg class="i" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><circle cx="12" cy="10" r="3"/><path d="M7.5 17a4.5 4.5 0 0 1 9 0"/></svg>Contacts</button>
+    <button role="tab" data-view="notes" aria-selected="false"><svg class="i" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>Notes</button>
+    <div class="group">Research</div>
+    <button role="tab" data-view="screener" aria-selected="false"><svg class="i" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 6-7"/></svg>Screener</button>
+    <button role="tab" data-view="reports" aria-selected="false"><svg class="i" viewBox="0 0 24 24"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>Reports</button>
+    <div class="group">Build</div>
+    <button role="tab" data-view="apps" aria-selected="false"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Apps</button>
+    <button role="tab" data-view="videos" aria-selected="false"><svg class="i" viewBox="0 0 24 24"><rect x="2" y="5" width="15" height="14" rx="2"/><path d="M17 10l5-3v10l-5-3z"/></svg>Videos</button>
+    <button role="tab" data-view="custom" aria-selected="false" id="customTab" hidden><svg class="i" viewBox="0 0 24 24"><path d="M12 3l2.5 5.5L20 9l-4 4 1 6-5-3-5 3 1-6-4-4 5.5-.5z"/></svg>Custom</button>
+  </nav>
+  <div class="side-foot">
+    <select id="spaceSel" class="space-sel" aria-label="Profile"></select>
+    <div class="status" id="status">Starting…</div>
+  </div>
+</aside>
+<div class="scrim" id="scrim"></div>
 
-<nav class="tabs" role="tablist" aria-label="Sections">
-  <button role="tab" data-pane="pane-chat" aria-selected="true">Manager</button>
-  <button role="tab" data-pane="pane-team" aria-selected="false">Team</button>
-  <button role="tab" data-pane="pane-right" aria-selected="false">Out-tray<span class="count" id="tabCount" hidden></span></button>
-</nav>
+<div class="stage">
+<header class="top">
+  <button class="icon-btn" id="menuBtn" type="button" aria-label="Menu"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span class="count" id="tabCount" hidden></span></button>
+  <h1 id="viewTitle">MyOps</h1>
+  <div class="tagline" id="tagline"></div>
+  <button class="pill-btn" id="checkBtn" type="button">Check AI</button>
+</header>
 
 <main>
   <section class="pane" id="pane-team" aria-label="Team">
     <div class="head"><h2>Team</h2><span class="eyebrow" id="headcount">4 staff</span></div>
-    <div class="scroll">
-      <div class="eyebrow section-label" style="margin-top:0">Core staff</div>
+    <div class="scroll"><div class="col">
+      <div class="section-label" style="margin-top:4px">Core staff</div>
       <div class="badges" id="staff"></div>
-      <div class="eyebrow section-label">Hired bots</div>
+      <div class="section-label">Hired bots</div>
       <div class="badges" id="bots"></div>
-      <div class="eyebrow section-label">Connections</div>
+      <div class="section-label">Connections</div>
       <div id="connections"></div>
-      <div class="eyebrow section-label">Profile</div>
+      <div class="section-label">Profile</div>
       <div id="operation"></div>
-      <div class="eyebrow section-label">Developer</div>
+      <div class="section-label">Developer</div>
       <div id="devbox"></div>
       <form class="hire-form" id="hireForm">
-        <label class="eyebrow" for="hireInput">Hire directly</label>
+        <label class="section-label" style="margin:0" for="hireInput">Hire directly</label>
         <textarea id="hireInput" placeholder="Job description, e.g. Plans my week from my goals and drafts the emails it needs"></textarea>
-        <button class="btn ghost small" id="hireBtn" type="submit">Send to Recruiter</button>
+        <div><button class="btn ghost small" id="hireBtn" type="submit">Send to Recruiter</button></div>
       </form>
-    </div>
+    </div></div>
   </section>
 
-  <section class="pane show" id="pane-chat" aria-label="Manager">
-    <div class="head"><div class="mode-switch" role="tablist" aria-label="Chat with"><button type="button" role="tab" id="modeMgr" aria-selected="true">Manager</button><button type="button" role="tab" id="modeAI" aria-selected="false">Direct AI</button></div><button class="btn ghost small" id="checkBtn" type="button">Check Claude</button></div>
-    <div class="quick" id="quick" hidden></div>
+  <section class="pane show" id="pane-chat" aria-label="Chat">
     <div class="scroll" id="chatScroll"><div class="log" id="log"></div></div>
+    <div class="quick" id="quick" hidden></div>
     <div class="notice" id="chatNotice" hidden></div>
-    <form class="compose" id="compose">
-      <textarea id="input" rows="1" placeholder="Tell the Manager what you need…" aria-label="Message to the Manager"></textarea>
-      <div class="refine-box">
-        <button class="btn ghost" id="refineBtn" type="button" title="Rewrite my message as a precise instruction; you review it before sending">Make precise</button>
-        <label class="auto" title="Make every message precise automatically before the Manager sees it"><input type="checkbox" id="autoRefine"> Auto</label>
-      </div>
-      <button class="btn" id="sendBtn" type="submit">Send</button>
-      <button class="btn ghost" id="stopBtn" type="button" hidden>Stop</button>
-    </form>
+    <div class="compose-wrap">
+      <form class="compose" id="compose">
+        <textarea id="input" rows="1" placeholder="Tell the Manager what you need…" aria-label="Message"></textarea>
+        <div class="compose-bar">
+          <div class="mode-switch" role="tablist" aria-label="Chat with"><button type="button" role="tab" id="modeMgr" aria-selected="true">Team</button><button type="button" role="tab" id="modeAI" aria-selected="false">Direct AI</button></div>
+          <span class="refine-box">
+            <button class="pill-btn" id="refineBtn" type="button" title="Rewrite my message as a precise instruction; you review it before sending">Make precise</button>
+            <label class="auto" title="Make every message precise automatically before the Manager sees it"><input type="checkbox" id="autoRefine"> Auto</label>
+          </span>
+          <span class="grow"></span>
+          <button class="send" id="sendBtn" type="submit" aria-label="Send"><svg class="i" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+          <button class="send stop" id="stopBtn" type="button" aria-label="Stop" hidden><svg class="i" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/></svg></button>
+        </div>
+      </form>
+      <div class="suggest-host" id="suggestHost"></div>
+      <div class="compose-note">Emails and texts wait in your Out-tray until you approve them.</div>
+    </div>
   </section>
 
-  <section class="pane" id="pane-right" aria-label="Out-tray, tasks and contacts">
-    <div class="head">
-      <div class="subtabs" role="tablist">
-        <button role="tab" data-sub="outbox" aria-selected="true">Out-tray<span class="count" id="outCount" hidden></span></button>
-        <button role="tab" data-sub="tasks" aria-selected="false">Tasks</button>
-        <button role="tab" data-sub="reports" aria-selected="false">Reports</button>
-        <button role="tab" data-sub="screener" aria-selected="false">Screener</button>
-        <button role="tab" data-sub="notes" aria-selected="false">Notes</button>
-        <button role="tab" data-sub="videos" aria-selected="false">Videos</button>
-        <button role="tab" data-sub="apps" aria-selected="false">Apps</button>
-        <button role="tab" data-sub="custom" aria-selected="false" id="customTab" hidden>Custom</button>
-        <button role="tab" data-sub="leads" aria-selected="false">Contacts</button>
-      </div>
-      <span class="eyebrow" id="rightMeta" hidden></span>
-    </div>
+  <section class="pane" id="pane-right" aria-label="Section">
+    <div class="head"><h2 id="subTitle">Out-tray</h2><span class="eyebrow" id="rightMeta" hidden></span></div>
     <div class="scroll" id="sub-outbox"></div>
     <div class="scroll" id="sub-tasks" hidden></div>
     <div class="scroll" id="sub-reports" hidden></div>
@@ -328,6 +431,8 @@ textarea, input, select {
     </div>
   </section>
 </main>
+</div>
+</div>
 
 <script type="application/json" id="codebook">{"bash": "# Bash / shell\n## Rules\n- Start with `#!/usr/bin/env bash` and `set -euo pipefail`.\n- Quote every variable: `\"$var\"`, `\"$@\"`. Use `[[ ... ]]` for tests, `$(...)` not backticks.\n- Check commands exist: `command -v jq >/dev/null || { echo \"need jq\" >&2; exit 1; }`.\n## Template\n```bash\n#!/usr/bin/env bash\nset -euo pipefail\nusage() { echo \"usage: $0 -i INPUT [-o OUTPUT]\" >&2; exit 2; }\nin=\"\" out=\"out.txt\"\nwhile getopts \"i:o:h\" opt; do\n  case \"$opt\" in i) in=\"$OPTARG\";; o) out=\"$OPTARG\";; *) usage;; esac\ndone\n[[ -n \"$in\" && -f \"$in\" ]] || usage\ntmp=\"$(mktemp)\"; trap 'rm -f \"$tmp\"' EXIT\nwhile IFS= read -r line; do\n  [[ -z \"$line\" ]] && continue\n  printf '%s\\n' \"${line^^}\" >>\"$tmp\"\ndone \u003c\"$in\"\nmv \"$tmp\" \"$out\"\necho \"wrote $out\"\n```\nLoops: `for f in *.log; do ...; done`. Arithmetic: `$(( a + b ))`. Defaults: `${VAR:-default}`.\nJSON: `curl -fsS \"$url\" | jq -r '.items[].name'`. Cron: `crontab -e`, `*/15 * * * * /path/script.sh >>/var/log/x.log 2>&1`.\n## Pitfalls\n- Spaces around `=` break assignment (`a = 1` is wrong). `[ $x = y ]` breaks when x is empty: quote it.\n- Pipes hide failures without `pipefail`. `cd` can fail: `cd dir || exit 1`. Never `rm -rf \"$dir/\"` with an unchecked var.\n", "html-css": "# HTML and CSS\n## Rules\n- Start with `\u003c!doctype html>`, `\u003chtml lang=\"en\">`, `\u003cmeta charset=\"utf-8\">`, `\u003cmeta name=\"viewport\" content=\"width=device-width,initial-scale=1\">`.\n- Semantic tags: header, nav, main, section, article, footer, button (not clickable divs), label for every input.\n- Mobile-first CSS; use flexbox for rows, grid for 2D layouts. Relative units (rem, %, fr). Contrast at least 4.5:1.\n- CSS variables for colors on `:root`; dark mode with `@media (prefers-color-scheme: dark)`.\n## Template\n```html\n\u003c!doctype html>\n\u003chtml lang=\"en\">\u003chead>\u003cmeta charset=\"utf-8\">\u003cmeta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\u003ctitle>App\u003c/title>\n\u003cstyle>\n  :root { --ink: #18212b; --bg: #f7f5f0; --accent: #d2551f; }\n  * { box-sizing: border-box; }\n  body { margin: 0; font: 16px/1.5 system-ui, sans-serif; color: var(--ink); background: var(--bg); }\n  main { max-width: 720px; margin: 0 auto; padding: 16px; }\n  .row { display: flex; gap: 8px; flex-wrap: wrap; }\n  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }\n  button { font: inherit; padding: 10px 14px; border-radius: 8px; border: 0; background: var(--accent); color: #fff; }\n  input { font: inherit; padding: 10px; border: 1px solid #ccc; border-radius: 8px; width: 100%; }\n\u003c/style>\u003c/head>\n\u003cbody>\u003cmain>\n  \u003ch1>Title\u003c/h1>\n  \u003cform id=\"form\" class=\"row\">\u003clabel for=\"q\">Search\u003c/label>\u003cinput id=\"q\" name=\"q\" required>\u003cbutton>Go\u003c/button>\u003c/form>\n  \u003cdiv id=\"out\" class=\"grid\">\u003c/div>\n\u003c/main>\u003cscript>/* JS here */\u003c/script>\u003c/body>\u003c/html>\n```\nCentering: `display:grid; place-items:center`. Sticky header: `position:sticky; top:0`. Truncate: `overflow:hidden; text-overflow:ellipsis; white-space:nowrap`.\n## Pitfalls\n- Missing viewport meta = tiny text on phones. Images need `alt` and `max-width:100%`.\n- `z-index` only works on positioned elements. Margins collapse vertically; use gap/padding.\n", "javascript": "# JavaScript (ES2020+, browser and Node)\n## Rules\n- `const` by default, `let` when reassigned, never `var`. `===` not `==`. Semicolons consistently.\n- camelCase variables/functions, PascalCase classes. Arrow functions for callbacks.\n- Always `await` promises inside `async` functions and wrap with try/catch. `fetch` does not throw on 404: check `res.ok`.\n- DOM: `textContent` for text (safe); `innerHTML` only with trusted strings (XSS risk).\n## Templates\n```js\nasync function getJson(url, opts = {}) {\n  const res = await fetch(url, { headers: { \"Content-Type\": \"application/json\" }, ...opts });\n  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);\n  return res.json();\n}\n\nconst $ = (sel) => document.querySelector(sel);\nfunction el(tag, props = {}, ...kids) {\n  const n = Object.assign(document.createElement(tag), props);\n  n.append(...kids.filter((k) => k != null));\n  return n;\n}\n\ndocument.addEventListener(\"DOMContentLoaded\", () => {\n  $(\"#form\").addEventListener(\"submit\", async (e) => {\n    e.preventDefault();\n    const data = Object.fromEntries(new FormData(e.target));\n    try { const out = await getJson(\"/api/items\", { method: \"POST\", body: JSON.stringify(data) }); render(out); }\n    catch (err) { $(\"#msg\").textContent = err.message; }\n  });\n});\n```\nArrays: `map`, `filter`, `reduce`, `find`, `some`, `every`, `sort((a, b) => a - b)` (default sort is text!).\nObjects: spread `{...a, b: 1}`, `Object.entries(o)`, optional chaining `a?.b?.c`, nullish `x ?? def`.\nStorage: `localStorage.setItem(k, JSON.stringify(v))`; `JSON.parse(localStorage.getItem(k) || \"null\")` in try/catch.\nNode: `import fs from \"node:fs/promises\"; await fs.readFile(p, \"utf8\")`; Express `app.get(\"/\", (req, res) => res.json({}))`.\n## Pitfalls\n- `this` in callbacks: use arrow functions. Floating point: `0.1 + 0.2 !== 0.3`; money in integer cents.\n- `parseInt(x, 10)` always with radix; `Number(\"\")` is 0. Dates: months are 0-based in `new Date(y, m, d)`.\n- forEach ignores `await`; use `for (const x of arr) await f(x)` or `Promise.all(arr.map(f))`.\n", "method": "# Method: how to write code that works the first time\nUse this every time, whatever the language. Small models succeed by following steps, not by guessing.\n\n## Steps\n1. Restate the task in one line. List inputs, outputs and edge cases (empty, zero, huge, missing, wrong type).\n2. Pick the simplest approach that fully works. Prefer the standard library over new dependencies.\n3. Write the code in small functions (each does one thing, under ~30 lines). Name things for what they mean.\n4. Handle errors at the edges: validate input, check results of I/O and network calls, never swallow errors silently.\n5. Self-check before answering, line by line:\n   - Every variable is defined before use; every import is used and exists.\n   - Every opened thing is closed (files, connections); every promise is awaited.\n   - Brackets, quotes and indentation balance. No placeholder like TODO or \"...\" left in code.\n   - Off-by-one: loop bounds, slicing ends, 0- vs 1-based indexes.\n   - The code does exactly what was asked, nothing more.\n6. Give a tiny usage example or test that proves it works.\n\n## Output rules\n- Return complete, runnable code: every file in full, with its path. Never \"rest unchanged\".\n- One fenced code block per file, with the language tag. No prose inside code blocks.\n- If something is unknown (an API key, a URL, a schema), use a clearly named constant at the top and say so.\n- Never invent library functions. If unsure a function exists, use a simpler construct you are sure of.\n- Keep secrets out of code: read them from environment variables or config.\n\n## Debugging\nRead the error message fully. Find the exact line. Form one hypothesis, change one thing, re-run.\nCommon causes: wrong type (string vs number), undefined/None, wrong path, async not awaited, wrong indentation.\n\n## Security basics (all languages)\n- Never build SQL, shell commands or HTML by string concatenation with user input: use parameters/escaping.\n- Validate and limit all input (length, type, range). Use HTTPS. Hash passwords (bcrypt/argon2), never store plain.\n- Least privilege: request only the permissions and scopes the feature needs.\n", "python": "# Python (3.10+)\n## Rules\n- 4-space indent, snake_case for functions/variables, PascalCase for classes, UPPER_CASE constants.\n- Use f-strings, `pathlib.Path`, `with open(...)` (auto-close), type hints on functions.\n- Prefer list/dict comprehensions for simple transforms; plain loops when there is logic.\n- `if __name__ == \"__main__\":` guard for scripts. `None` checks with `is None`.\n- Mutable default args are a bug: `def f(x=None): x = x or []`.\n## Templates\n```python\nimport json, logging, sys\nfrom pathlib import Path\n\nlog = logging.getLogger(__name__)\n\ndef load_json(path: str | Path) -> dict:\n    try:\n        return json.loads(Path(path).read_text(encoding=\"utf-8\"))\n    except FileNotFoundError:\n        log.warning(\"missing %s\", path); return {}\n\ndef main(argv: list[str]) -> int:\n    if len(argv) \u003c 2:\n        print(\"usage: app.py FILE\", file=sys.stderr); return 2\n    data = load_json(argv[1])\n    print(len(data)); return 0\n\nif __name__ == \"__main__\":\n    raise SystemExit(main(sys.argv))\n```\nHTTP with httpx (or requests): `r = httpx.get(url, timeout=20); r.raise_for_status(); data = r.json()`.\nAsync: `async def f(): async with httpx.AsyncClient() as c: r = await c.get(url)`; run with `asyncio.run(f())`.\nDataclass: `@dataclass class User: name: str; age: int = 0`.\nCLI: `argparse.ArgumentParser(); p.add_argument(\"--n\", type=int, default=10)`.\nSQLite: `con = sqlite3.connect(\"db.sqlite\"); con.execute(\"SELECT * FROM t WHERE id = ?\", (id,))`.\nFastAPI: `app = FastAPI(); @app.get(\"/items/{id}\") async def get(id: int): return {\"id\": id}`.\nTests (pytest): `def test_add(): assert add(2, 3) == 5`; run `pytest -q`.\n## Pitfalls\n- `==` vs `is`; integer division `//`; `range(n)` stops at n-1; dict iteration order is insertion order.\n- Don't catch bare `except:`; catch specific exceptions. Don't modify a list while iterating it.\n- Timezones: use `datetime.now(timezone.utc)`. Floats for money are wrong: use `Decimal` or integer cents.\n", "sql": "# SQL (PostgreSQL, SQLite, MySQL)\n## Rules\n- Always parameterized queries (`?`, `$1`, `%s` depending on driver). Never concatenate user input.\n- Every table: primary key, `created_at` timestamp, NOT NULL where possible, foreign keys with ON DELETE rule.\n- Index columns used in WHERE/JOIN/ORDER BY. Use transactions for multi-step writes.\n## Templates\n```sql\nCREATE TABLE customers (\n  id BIGSERIAL PRIMARY KEY,               -- SQLite: INTEGER PRIMARY KEY AUTOINCREMENT\n  email TEXT NOT NULL UNIQUE,\n  name TEXT NOT NULL,\n  created_at TIMESTAMPTZ NOT NULL DEFAULT now()\n);\nCREATE TABLE orders (\n  id BIGSERIAL PRIMARY KEY,\n  customer_id BIGINT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,\n  total_cents INTEGER NOT NULL CHECK (total_cents >= 0),\n  created_at TIMESTAMPTZ NOT NULL DEFAULT now()\n);\nCREATE INDEX orders_customer ON orders (customer_id, created_at DESC);\n\n-- top customers by spend in the last 30 days\nSELECT c.name, SUM(o.total_cents) / 100.0 AS spent\nFROM orders o JOIN customers c ON c.id = o.customer_id\nWHERE o.created_at >= now() - INTERVAL '30 days'\nGROUP BY c.id, c.name\nORDER BY spent DESC\nLIMIT 10;\n\n-- upsert\nINSERT INTO customers (email, name) VALUES ($1, $2)\nON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name;\n```\nWindow functions: `ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY created_at DESC)`.\nSupabase/Postgres row-level security: `ALTER TABLE t ENABLE ROW LEVEL SECURITY; CREATE POLICY own ON t USING (auth.uid() = user_id);`\n## Pitfalls\n- `NULL = NULL` is not true: use `IS NULL`. `COUNT(col)` skips NULLs; `COUNT(*)` doesn't.\n- Every non-aggregated SELECT column must be in GROUP BY. `LIKE '%x%'` can't use a normal index.\n- Money as integer cents or NUMERIC, never FLOAT.\n", "typescript": "# TypeScript\n## Rules\n- `strict: true`. Type function parameters and return values; let locals be inferred.\n- `interface` for object shapes, `type` for unions. Avoid `any`; use `unknown` and narrow with checks.\n- Discriminated unions for states: `type S = { kind: \"ok\"; data: T } | { kind: \"err\"; error: string }`.\n## Templates\n```ts\ninterface User { id: number; name: string; email?: string }\n\nasync function fetchUser(id: number): Promise\u003cUser> {\n  const res = await fetch(`/api/users/${id}`);\n  if (!res.ok) throw new Error(`HTTP ${res.status}`);\n  return (await res.json()) as User;\n}\n\nfunction isUser(x: unknown): x is User {\n  return typeof x === \"object\" && x !== null && typeof (x as User).id === \"number\";\n}\n```\nGenerics: `function first\u003cT>(xs: T[]): T | undefined { return xs[0]; }`. Utility types: `Partial\u003cT>`, `Pick\u003cT,\"a\">`, `Record\u003cstring, T>`.\nReact (TSX): `function Card({ title }: { title: string }) { const [n, setN] = useState(0); return \u003cbutton onClick={() => setN(n + 1)}>{title} {n}\u003c/button>; }`\n## Pitfalls\n- `as` casts don't check anything at runtime; validate external data. Non-null `!` hides bugs.\n- Enums compile to objects; prefer string-literal unions. Keep `tsconfig` `moduleResolution` consistent with the bundler.\n"}</script>
 <script>
@@ -563,6 +668,7 @@ function renderChat() {
   const nodes = msgs.map((m) => message(m.role, m.text, m.steps, false, m.refined));
   if (S.live && !!S.live.direct === direct) nodes.push(message(direct ? "ai" : "manager", S.live.text || (direct ? "Thinking…" : "Working on it…"), S.live.steps, true));
   if (direct) {
+    $("pane-chat").classList.toggle("fresh", !nodes.length); $("suggestHost").replaceChildren();
     if (!nodes.length) nodes.push(el("div", { className: "empty" },
       el("h3", { textContent: "Chat directly with the AI" }),
       el("p", { textContent: "A plain conversation with the AI your team runs on: no Manager, no bots, no tools. Ask anything, brainstorm, draft or translate. Switch back to Manager to put the team to work." })));
@@ -570,22 +676,25 @@ function renderChat() {
     const sc = $("chatScroll"); sc.scrollTop = sc.scrollHeight;
     return;
   }
+  if (S.view === "chat" || !S.view) $("viewTitle").textContent = S.profile?.company || "MyOps";
   if (S.loaded && !S.readOnly && !S.live && (!S.profile || S.editingProfile)) {
+    $("pane-chat").classList.remove("fresh"); $("suggestHost").replaceChildren();
     log.replaceChildren(setupForm());
     return;
   }
+  $("pane-chat").classList.toggle("fresh", !nodes.length);
+  $("suggestHost").replaceChildren();
   if (!nodes.length) {
     nodes.push(el("div", { className: "empty" },
-      el("h3", { textContent: S.profile ? `What should ${S.profile.company}'s team work on?` : "What should the team work on?" }),
-      el("p", { textContent: "The Manager plans the work. If nobody fits, the Recruiter designs a new bot and HR reviews it before it starts. Every task lands on the Tasks board, and emails and texts wait in your out-tray for approval." }),
-      el("div", { className: "suggest" }, [
+      el("h3", { textContent: S.profile ? `Hi${S.profile.company ? ", " + S.profile.company.split(/[\s,]/)[0] : ""}. What should the team work on?` : "What should the team work on?" }),
+      el("p", { textContent: "The Manager plans the work and hands it to the right bot, hiring one through the Recruiter and HR when nobody fits. Emails and texts wait in your Out-tray for approval." })));
+    $("suggestHost").append(el("div", { className: "suggest" }, [
         S.reports.length ? "Have the analysts review the latest research report: the best 3 setups, with entry (pivot), stop, risk per share and what could go wrong." : null,
         "Who is on the team, and what can each bot do?",
         "Plan my week around my goals: what I should do each day, and what the team can take off my plate.",
         "Find 10 companies that match my ideal customer, with the right person at each, and add them as contacts.",
         "Research my five newest contacts (recent news and open jobs) and draft a short, personal intro email to each.",
-      ].filter(Boolean).map((t) => el("button", { type: "button", textContent: t, disabled: S.readOnly, onclick: () => send(t) }))),
-    ));
+      ].filter(Boolean).map((t) => el("button", { type: "button", textContent: t, disabled: S.readOnly, onclick: () => send(t) }))));
   }
   log.replaceChildren(...nodes);
   const sc = $("chatScroll"); sc.scrollTop = sc.scrollHeight;
@@ -597,13 +706,14 @@ function message(role, text, steps, live, refined) {
   const wrapSteps = stepList && !live
     ? el("details", { className: "steps-wrap" }, el("summary", { textContent: `${steps.length} step${steps.length === 1 ? "" : "s"} by the team` }), stepList)
     : stepList;
-  return el("div", { className: `msg ${role === "user" ? "user" : "manager"}${live ? " working" : ""}` },
+  const node = el("div", { className: `msg ${role === "user" ? "user" : "manager"}${live ? " working" : ""}` },
     el("div", { className: "who", textContent: who }),
-    wrapSteps && role !== "user" && live ? wrapSteps : null,
+    wrapSteps && role !== "user" ? wrapSteps : null,
     el("div", { className: "text", textContent: text }),
     refined && refined !== text ? el("div", { className: "refined", textContent: `Understood as: ${refined}` }) : null,
-    wrapSteps && role !== "user" && !live ? wrapSteps : null,
   );
+  node.dataset.mark = role === "ai" ? "AI" : "M";
+  return node;
 }
 
 function setupForm() {
@@ -2512,7 +2622,7 @@ $("checkBtn").addEventListener("click", async () => {
   }
   const ok = results.filter((r) => r.includes(": OK"));
   S.tier = ok.length && !results[0].includes(": OK") ? "quick" : "default";
-  notice(`Claude check: ${results.join(" · ")}${S.tier === "quick" ? " · The team will use the fast model." : ""}`, !ok.length);
+  notice(`AI check: ${results.join(" · ")}${S.tier === "quick" ? " · The team will use the fast model." : ""}`, !ok.length);
   S.store.set("diagnostics", "last", { at: Date.now(), results }).catch(() => {});
   b.disabled = false;
 });
@@ -2537,16 +2647,36 @@ $("atSyncBtn").addEventListener("click", async (e) => {
 });
 $("atImportBtn").addEventListener("click", (e) => importFromAirtable(e.currentTarget));
 $("atSetupBtn").addEventListener("click", (e) => setupAirtable(e.currentTarget));
-document.querySelectorAll(".subtabs button").forEach((b) => b.addEventListener("click", () => {
-  document.querySelectorAll(".subtabs button").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
-  for (const k of ["outbox", "tasks", "reports", "screener", "notes", "videos", "apps", "custom", "leads"]) $(`sub-${k}`).hidden = b.dataset.sub !== k;
-  $("rightMeta").hidden = b.dataset.sub !== "leads";
-}));
-function showPane(id) {
-  document.querySelectorAll(".tabs button").forEach((x) => x.setAttribute("aria-selected", String(x.dataset.pane === id)));
-  document.querySelectorAll("main > .pane").forEach((p) => p.classList.toggle("show", p.id === id));
+const VIEWS = { chat: "Chat", team: "Team", outbox: "Out-tray", tasks: "Tasks", leads: "Contacts", notes: "Notes", screener: "Screener", reports: "Reports", apps: "Apps", videos: "Videos", custom: "Custom" };
+function showView(v) {
+  if (!VIEWS[v] || (v === "custom" && $("customTab").hidden)) v = "chat";
+  S.view = v; $("app").dataset.view = v;
+  document.querySelectorAll(".nav button").forEach((x) => x.setAttribute("aria-selected", String(x.dataset.view === v)));
+  const pane = v === "chat" ? "pane-chat" : v === "team" ? "pane-team" : "pane-right";
+  document.querySelectorAll("main > .pane").forEach((p) => p.classList.toggle("show", p.id === pane));
+  if (pane === "pane-right") {
+    for (const k of Object.keys(VIEWS).slice(2)) $(`sub-${k}`).hidden = k !== v;
+    $("subTitle").textContent = VIEWS[v]; $("rightMeta").hidden = v !== "leads";
+  }
+  $("viewTitle").textContent = v === "chat" ? S.profile?.company || "MyOps" : VIEWS[v];
+  $("app").classList.remove("drawer");
+  try { localStorage.setItem("myops.view", v); } catch { /* storage unavailable */ }
 }
-document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => showPane(b.dataset.pane)));
+function showPane(id) { showView(id === "pane-team" ? "team" : id === "pane-right" ? "outbox" : "chat"); }
+document.querySelectorAll(".nav button").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
+$("menuBtn").addEventListener("click", () => $("app").classList.add("drawer"));
+$("scrim").addEventListener("click", () => $("app").classList.remove("drawer"));
+$("newChatBtn").addEventListener("click", () => { showView("chat"); $("input").focus(); });
+const darkNow = () => document.documentElement.dataset.theme ? document.documentElement.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+$("themeBtn").addEventListener("click", () => {
+  const t = darkNow() ? "light" : "dark";
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem("myops.theme", t); } catch { /* storage unavailable */ }
+});
+try {
+  const t = localStorage.getItem("myops.theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+  const v = localStorage.getItem("myops.view"); if (v && v !== "chat") setTimeout(() => showView(v));
+} catch { /* storage unavailable */ }
 
 // ---------- Boot ----------------------------------------------------------------------
 S.root = memoryStore();
